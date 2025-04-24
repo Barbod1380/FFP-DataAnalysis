@@ -31,6 +31,12 @@ if uploaded_file is not None:
         st.subheader("📄 Preview of Uploaded Data")
         st.dataframe(df.head(10), use_container_width=True)
 
+        # Convert columns to numeric safely
+        numeric_cols = ["length [mm]", "width [mm]", "depth [%]", "ERF B31G"]
+        for col in numeric_cols:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+        # Convert clock string to float hour format
         df["clock_float"] = df["clock"].astype(str).apply(parse_clock_to_float)
 
         # Compute defect area in mm²
