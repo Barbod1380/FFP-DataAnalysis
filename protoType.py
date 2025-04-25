@@ -29,8 +29,7 @@ def process_pipeline_data(df):
     df_copy = df.copy()
     
     # 1. Replace empty strings with NaN for proper handling
-    df_copy = df_copy.replace(r'^\s*
-, np.nan, regex=True)
+    df_copy = df_copy.replace(r'^\s*', np.nan, regex=True)
     
     # 2. Convert numeric columns to appropriate types
     numeric_columns = [
