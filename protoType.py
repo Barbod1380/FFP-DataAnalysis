@@ -240,7 +240,6 @@ def create_unwrapped_pipeline_visualization(defects_df, joints_df):
                         len=0.6,
                         y=0.5,
                         yanchor="middle",
-                        titleside="right"
                     ),
                     opacity=0.8,
                     line=dict(width=1, color='white')
