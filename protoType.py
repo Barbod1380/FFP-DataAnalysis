@@ -1,47 +1,39 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import plotly.graph_objects as go
 import plotly.express as px
+import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 # Set page configuration
-st.set_page_config(
-    page_title="FFS Pipeline Analyzer",
-    page_icon="🛠️",
-    layout="wide"
-)
+st.set_page_config(page_title="Pipeline Inspection Visualization", layout="wide")
 
-# Helper functions
-def decimal_to_clock_str(decimal_hours):
-    """Convert decimal hours to clock format string."""
-    if pd.isna(decimal_hours):
-        return "Unknown"
-    
-    # Ensure the value is between 1 and 12
-    if decimal_hours < 1:
-        decimal_hours += 12
-    elif decimal_hours > 12:
-        decimal_hours = decimal_hours % 12
-        if decimal_hours == 0:
-            decimal_hours = 12
-    
-    hours = int(decimal_hours)
-    minutes = int((decimal_hours - hours) * 60)
-    
-    return f"{hours}:{minutes:02d}"
+# Add app title
+st.title("Pipeline Inspection Data Visualization")
 
+# Define the process_pipeline_data function
 def process_pipeline_data(df):
-    """Process the pipeline inspection data into two separate tables."""
+    """
+    Process the pipeline inspection data into two separate tables:
+    1. joints_df: Contains unique joint information
+    2. defects_df: Contains defect information with joint associations
+    
+    Parameters:
+    - df: DataFrame with the raw pipeline data
+    
+    Returns:
+    - joints_df: DataFrame with joint information
+    - defects_df: DataFrame with defect information
+    """
     # Make a copy to avoid modifying the original
     df_copy = df.copy()
     
-    # Replace empty strings with NaN for proper handling
+    # 1. Replace empty strings with NaN for proper handling
     df_copy = df_copy.replace(r'^\s*$', np.nan, regex=True)
     
-    # Convert numeric columns to appropriate types
+    # 2. Convert numeric columns to appropriate types
     numeric_columns = [
-        'log dist. [m]', 
+        'joint number', 
         'joint length [m]', 
         'wt nom [mm]', 
         'up weld dist. [m]', 
@@ -54,21 +46,19 @@ def process_pipeline_data(df):
         if col in df_copy.columns:
             df_copy[col] = pd.to_numeric(df_copy[col], errors='coerce')
     
-    # Handle clock position (convert to numeric)
-    if 'clock' in df_copy.columns:
-        df_copy['clock'] = pd.to_numeric(df_copy['clock'], errors='coerce')
-    
-    # Sort by log distance to ensure proper order for forward fill
+    # 4. Sort by log distance to ensure proper order for forward fill
     if 'log dist. [m]' in df_copy.columns:
         df_copy = df_copy.sort_values('log dist. [m]')
     
-    # Create joints_df with specified columns
-    joints_df = df_copy[df_copy['joint number'].notna()][['joint number', 'joint length [m]', 'wt nom [mm]', 'log dist. [m]']].copy()
+    # 5. Create joints_df with only the specified columns
+    joints_df = df_copy[df_copy['joint number'].notna()][['log dist. [m]', 'joint number', 'joint length [m]', 'wt nom [mm]']].copy()
     
-    # Drop duplicate joint numbers if any
+    # 6. Drop duplicate joint numbers if any
     joints_df = joints_df.drop_duplicates(subset=['joint number'])
+    joints_df = joints_df.reset_index().drop(columns=['index'])
     
-    # Forward fill joint number to associate defects with joints
+    # 7. Create defects_df - records with length and width values
+    # First, forward fill joint number to associate defects with joints
     df_copy['joint number'] = df_copy['joint number'].fillna(method='ffill')
     
     # Filter for records that have both length and width values
@@ -95,23 +85,58 @@ def process_pipeline_data(df):
     
     # Select only available columns
     defects_df = defects_df[available_columns]
-    
-    # Create additional columns
-    if 'clock' in defects_df.columns:
-        defects_df['clock_float'] = defects_df['clock']
-        
-    # Calculate area
-    if all(col in defects_df.columns for col in ['length [mm]', 'width [mm]']):
-        defects_df['area_mm2'] = defects_df['length [mm]'] * defects_df['width [mm]']
-    
-    # Convert joint number to Int64
-    if 'joint number' in defects_df.columns:
-        defects_df['joint number'] = defects_df['joint number'].astype("Int64")
+    defects_df = defects_df.reset_index().drop(columns=['index'])
     
     return joints_df, defects_df
 
+# Define the parse_clock function
+def parse_clock(clock_str):
+    try:
+        hours, minutes = map(int, clock_str.split(":"))
+        return hours + minutes / 60
+    except Exception:
+        return np.nan
+
+# Define the decimal_to_clock_str function
+def decimal_to_clock_str(decimal_hours):
+    """
+    Convert decimal hours to clock format string.
+    Example: 5.9 → "5:54"
+    
+    Parameters:
+    - decimal_hours: Clock position in decimal format
+    
+    Returns:
+    - String in clock format "H:MM"
+    """
+    if pd.isna(decimal_hours):
+        return "Unknown"
+    
+    # Ensure the value is between 1 and 12
+    if decimal_hours < 1:
+        decimal_hours += 12
+    elif decimal_hours > 12:
+        decimal_hours = decimal_hours % 12
+        if decimal_hours == 0:
+            decimal_hours = 12
+    
+    hours = int(decimal_hours)
+    minutes = int((decimal_hours - hours) * 60)
+    
+    return f"{hours}:{minutes:02d}"
+
+# Define the create_unwrapped_pipeline_visualization function
 def create_unwrapped_pipeline_visualization(defects_df, joints_df):
-    """Create an enhanced unwrapped cylinder visualization of pipeline defects."""
+    """
+    Create an enhanced unwrapped cylinder visualization of pipeline defects.
+    
+    Parameters:
+    - defects_df: DataFrame with defect information
+    - joints_df: DataFrame with joint information
+    
+    Returns:
+    - Plotly figure object
+    """
     # Precompute marker sizes (relative scale with better range)
     min_size, max_size = 5, 30
     area = defects_df["area_mm2"].fillna(0)
@@ -131,8 +156,8 @@ def create_unwrapped_pipeline_visualization(defects_df, joints_df):
     color_modes = {
         "Depth (%)": {
             "column": "depth [%]",
-            "colorscale": "RdYlBu_r",
-            "color_range": [0, max_depth]
+            "colorscale": "Turbo",
+            "color_range": [0, max_depth]  # Dynamic scaling based on actual data
         },
         "Surface Location": {
             "column": "surface location",
@@ -146,7 +171,7 @@ def create_unwrapped_pipeline_visualization(defects_df, joints_df):
         }
     }
     
-    # Create figure with subplots
+    # Create figure with subplots (1 row, 1 column)
     fig = make_subplots(rows=1, cols=1, 
                         specs=[[{"secondary_y": True}]])
     
@@ -195,7 +220,7 @@ def create_unwrapped_pipeline_visualization(defects_df, joints_df):
                         "<b>Joint:</b> %{customdata[0]}<br>"
                         f"<b>{label}:</b> {val}<extra></extra>"
                     ),
-                    visible=(i == 0)
+                    visible=(i == 0)  # only first mode visible on load
                 ))
         else:
             # For continuous data like depth
@@ -238,7 +263,7 @@ def create_unwrapped_pipeline_visualization(defects_df, joints_df):
                     "<b>Joint:</b> %{customdata[0]}<br>"
                     f"<b>{label}:</b> %{{marker.color:.1f}}<extra></extra>"
                 ),
-                visible=(i == 0)
+                visible=(i == 0)  # only first mode visible on load
             ))
     
     # Add a background grid representing clock positions
@@ -259,7 +284,7 @@ def create_unwrapped_pipeline_visualization(defects_df, joints_df):
         x0 = row["log dist. [m]"]
         joint_num = row["joint number"]
         
-        # Add joint annotation
+        # Add joint annotation - moved to top of plot
         fig.add_annotation(
             x=x0,
             y=13.5,
@@ -277,7 +302,7 @@ def create_unwrapped_pipeline_visualization(defects_df, joints_df):
         running_count = 0
         
         for mode_label, config in color_modes.items():
-            if config.get("is_categorical", False) and mode_label in defects_df.columns:
+            if config.get("is_categorical", False) and config["column"] in defects_df.columns:
                 unique_count = len(defects_df[config["column"]].dropna().unique())
                 trace_counts.append(unique_count)
                 running_count += unique_count
@@ -299,16 +324,23 @@ def create_unwrapped_pipeline_visualization(defects_df, joints_df):
                   {"title": f"Pipeline Defect Map — {label} Mode"}]
         ))
     
-    # Update axes and layout
+    # Compute maximum distance in your data
+    max_dist = defects_df["log dist. [m]"].max()
+    
+    # Create ticks at 0,100,200,… up to (and including) the largest 100-multiple ≤ max_dist
+    tickvals = np.arange(0, max_dist + 1, 100)
+    
+    # Label them as whole‐number strings
+    ticktext = [f"{int(x)}" for x in tickvals]
+    
     fig.update_xaxes(
         title_text="Distance Along Pipeline (m)",
         showgrid=True,
         gridcolor="rgba(200, 200, 200, 0.2)",
         zeroline=False,
-        # Clean up the x-axis by setting specific tick values and formatting
         tickmode="array",
-        tickvals=np.linspace(defects_df["log dist. [m]"].min(), defects_df["log dist. [m]"].max(), 10),
-        ticktext=[f"{x:.0f}" for x in np.linspace(defects_df["log dist. [m]"].min(), defects_df["log dist. [m]"].max(), 10)],
+        tickvals=tickvals,
+        ticktext=ticktext,
         showticklabels=True
     )
     
@@ -354,14 +386,14 @@ def create_unwrapped_pipeline_visualization(defects_df, joints_df):
         updatemenus=[dict(
             active=0,
             buttons=buttons,
-            x=0.15,
+            x=0.05,
             y=1.12,
             xanchor="left",
             yanchor="top",
             bgcolor="rgba(240, 240, 240, 0.8)",
             bordercolor="rgba(100, 100, 100, 0.5)",
-            pad={"r": 10, "t": 10},
-            button_width=160
+            # Set padding and button width for better appearance
+            pad={"r": 10, "t": 10}
         )],
         height=700,
         annotations=[
@@ -417,43 +449,45 @@ def create_unwrapped_pipeline_visualization(defects_df, joints_df):
     
     return fig
 
-# Application title
-st.title("🛠️ FFS Pipeline Defect Analyzer")
+# Main app layout
+st.write("Upload a pipeline inspection CSV file to visualize defects")
 
 # File uploader
-uploaded_file = st.file_uploader("📂 Upload your pipeline data (.csv)", type="csv")
+uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
 
-# Process uploaded file
 if uploaded_file is not None:
-    try:
-        # Read data
-        df = pd.read_csv(uploaded_file)
-        st.success("✅ File uploaded successfully!")
-        
-        # Process data
-        joints_df, defects_df = process_pipeline_data(df)
-        
-        # Display joint information
-        st.header("Pipeline Joints")
-        st.dataframe(joints_df.head(10), use_container_width=True)
-        st.text(f"Total joints: {len(joints_df)}")
-        
-        # Display defect information
-        st.header("Pipeline Defects")
-        st.dataframe(defects_df.head(10), use_container_width=True) 
-        st.text(f"Total defects: {len(defects_df)}")
-        
-        # Create and display unwrapped pipeline visualization
-        st.header("Unwrapped Pipeline Visualization")
-        
-        if not defects_df.empty:
-            with st.spinner("Generating visualization..."):
-                fig = create_unwrapped_pipeline_visualization(defects_df, joints_df)
-                st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.warning("No defect data available for visualization.")
-            
-    except Exception as e:
-        st.error(f"Error processing file: {str(e)}")
+    # Load the data
+    df = pd.read_csv(uploaded_file)
+    
+    # Process the pipeline data
+    joints_df, defects_df = process_pipeline_data(df)
+    
+    # Process clock and area data
+    defects_df["clock_float"] = defects_df["clock"].apply(parse_clock)
+    defects_df["area_mm2"] = defects_df["length [mm]"] * defects_df["width [mm]"]
+    defects_df["joint number"] = defects_df["joint number"].astype("Int64")
+    
+    # Display the tables
+    st.header("Data Preview")
+    
+    # Create two columns
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("Joints Table (Top 10 Records)")
+        st.dataframe(joints_df.head(10))
+    
+    with col2:
+        st.subheader("Defects Table (Top 10 Records)")
+        st.dataframe(defects_df.head(10))
+    
+    # Visualization section
+    st.header("Visualization")
+    
+    # Button to show visualization
+    if st.button("Show Pipeline Defect Visualization"):
+        st.subheader("Pipeline Defect Map")
+        fig = create_unwrapped_pipeline_visualization(defects_df, joints_df)
+        st.plotly_chart(fig, use_container_width=True)
 else:
-    st.info("Please upload a CSV file containing pipeline inspection data to begin analysis.")
+    st.info("Please upload a CSV file to begin analysis.")
