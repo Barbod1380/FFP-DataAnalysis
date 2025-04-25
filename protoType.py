@@ -29,7 +29,8 @@ def process_pipeline_data(df):
     df_copy = df.copy()
     
     # 1. Replace empty strings with NaN for proper handling
-    df_copy = df_copy.replace(r'^\s*$', np.nan, regex=True)
+    df_copy = df_copy.replace(r'^\s*
+, np.nan, regex=True)
     
     # 2. Convert numeric columns to appropriate types
     numeric_columns = [
@@ -448,6 +449,146 @@ def create_unwrapped_pipeline_visualization(defects_df, joints_df):
     
     return fig
 
+# Define the joint-specific visualization function
+def create_joint_defect_visualization(defects_df, joint_number):
+    """
+    Create a visualization of defects for a specific joint, representing defects
+    as rectangles whose fill color maps to depth (%) between the joint's min & max,
+    plus an interactive hover and a matching colorbar.
+    """
+    # 1) Filter
+    joint_defects = defects_df[defects_df['joint number'] == joint_number].copy()
+    if joint_defects.empty:
+        return go.Figure().update_layout(
+            title=f"No defects found for Joint {joint_number}",
+            xaxis_title="Distance (m)",
+            yaxis_title="Clock Position",
+            plot_bgcolor="white"
+        )
+    
+    # 2) Depth range for this joint
+    depths = joint_defects['depth [%]'].astype(float)
+    min_depth, max_depth = depths.min(), depths.max()
+    
+    # Ensure we have a valid range (avoid division by zero)
+    if min_depth == max_depth:
+        min_depth = max(0, min_depth - 1)
+        max_depth = max_depth + 1
+
+    # 3) Geometry constants
+    min_dist = joint_defects['log dist. [m]'].min()
+    max_dist = joint_defects['log dist. [m]'].max()
+    pipe_diameter = 1.0  # m
+    meters_per_clock_unit = np.pi * pipe_diameter / 12
+
+    fig = go.Figure()
+    colorscale_name = "YlOrRd"
+
+    # 4) Draw each defect
+    for _, defect in joint_defects.iterrows():
+        x_center = defect['log dist. [m]']
+        clock_pos = defect['clock_float']
+        length_m = defect['length [mm]'] / 1000
+        width_m = defect['width [mm]'] / 1000
+        depth_pct = float(defect['depth [%]'])
+
+        # rectangle corners
+        w_clock = width_m / meters_per_clock_unit
+        x0, x1 = x_center - length_m/2, x_center + length_m/2
+        y0, y1 = clock_pos - w_clock/2, clock_pos + w_clock/2
+
+        # Calculate normalized depth (0-1) for color mapping
+        norm_depth = (depth_pct - min_depth) / (max_depth - min_depth)
+        
+        # Get color from colorscale using plotly's helper
+        color = px.colors.sample_colorscale(colorscale_name, [norm_depth])[0]
+
+        # Create custom data for hover info
+        custom_data = [
+            defect['clock'],
+            depth_pct,
+            defect['length [mm]'],
+            defect['width [mm]'],
+            defect.get('component / anomaly identification', 'Unknown')
+        ]
+        
+        # Add rectangle for each defect with proper hover template
+        fig.add_trace(go.Scatter(
+            x=[x0, x1, x1, x0, x0],
+            y=[y0, y0, y1, y1, y0],
+            mode='lines',
+            fill='toself',
+            fillcolor=color,  # Apply the color from the colorscale
+            line=dict(color='black', width=1),
+            hoveron='fills+points',
+            hoverinfo='text',
+            customdata=[custom_data] * 5,  # Same data for all 5 points
+            hovertemplate="<b>Defect Information</b><br>" +
+                          "Distance: %{x:.3f} m<br>" +
+                          "Clock: %{customdata[0]}<br>" +
+                          "Depth: %{customdata[1]:.1f}%<br>" +
+                          "Length: %{customdata[2]:.1f} mm<br>" +
+                          "Width: %{customdata[3]:.1f} mm<br>" +
+                          "Type: %{customdata[4]}<extra></extra>",
+            showlegend=False
+        ))
+
+    # 5) Invisible scatter for shared colorbar
+    fig.add_trace(go.Scatter(
+        x=[None]*len(depths),
+        y=[None]*len(depths),
+        mode='markers',
+        marker=dict(
+            color=depths,
+            colorscale=colorscale_name,
+            cmin=min_depth,
+            cmax=max_depth,
+            showscale=True,
+            colorbar=dict(
+                title="Depth (%)",
+                thickness=15,
+                len=0.5,
+                tickformat=".1f"
+            ),
+            opacity=0
+        ),
+        showlegend=False
+    ))
+
+    # 6) Clock‐hour grid lines
+    for hr in range(1,13):
+        fig.add_shape(
+            type="line",
+            x0=min_dist - 0.2, x1=max_dist + 0.2,
+            y0=hr, y1=hr,
+            line=dict(color="lightgray", dash="dot", width=1),
+            layer="below"
+        )
+
+    # 7) Layout
+    fig.update_layout(
+        title=f"Defect Map for Joint {joint_number}",
+        xaxis_title="Distance Along Pipeline (m)",
+        yaxis_title="Clock Position (hr)",
+        plot_bgcolor="white",
+        xaxis=dict(
+            range=[min_dist - 0.2, max_dist + 0.2],
+            showgrid=True, gridcolor="rgba(200,200,200,0.2)"
+        ),
+        yaxis=dict(
+            tickmode="array",
+            tickvals=list(range(1,13)),
+            ticktext=[f"{h}:00" for h in range(1,13)],
+            range=[0.5,12.5],
+            showgrid=True, gridcolor="rgba(200,200,200,0.2)"
+        ),
+        height=600, width=1200,
+        hoverlabel=dict(bgcolor="white", font_size=12),
+        margin=dict(l=50, r=50, t=80, b=50)
+    )
+
+    return fig
+
 # Main app layout
 st.write("Upload a pipeline inspection CSV file to visualize defects")
 
@@ -483,10 +624,41 @@ if uploaded_file is not None:
     # Visualization section
     st.header("Visualization")
     
-    # Button to show visualization
-    if st.button("Show Pipeline Defect Visualization"):
-        st.subheader("Pipeline Defect Map")
-        fig = create_unwrapped_pipeline_visualization(defects_df, joints_df)
-        st.plotly_chart(fig, use_container_width=True)
+    # Visualization type selection
+    viz_type = st.radio(
+        "Select Visualization Type",
+        ["Complete Pipeline", "Joint-by-Joint"],
+        horizontal=True
+    )
+    
+    if viz_type == "Complete Pipeline":
+        # Button to show visualization
+        if st.button("Show Complete Pipeline Visualization"):
+            st.subheader("Pipeline Defect Map")
+            fig = create_unwrapped_pipeline_visualization(defects_df, joints_df)
+            st.plotly_chart(fig, use_container_width=True)
+    else:
+        # Joint selection
+        available_joints = sorted(joints_df["joint number"].unique())
+        
+        # Format the joint numbers with their distance for better context
+        joint_options = {}
+        for joint in available_joints:
+            joint_row = joints_df[joints_df["joint number"] == joint].iloc[0]
+            distance = joint_row["log dist. [m]"]
+            joint_options[f"Joint {joint} (at {distance:.1f}m)"] = joint
+        
+        selected_joint_label = st.selectbox(
+            "Select Joint to Visualize",
+            options=list(joint_options.keys())
+        )
+        
+        selected_joint = joint_options[selected_joint_label]
+        
+        # Button to show joint visualization
+        if st.button("Show Joint Visualization"):
+            st.subheader(f"Defect Map for {selected_joint_label}")
+            fig = create_joint_defect_visualization(defects_df, selected_joint)
+            st.plotly_chart(fig, use_container_width=True)
 else:
     st.info("Please upload a CSV file to begin analysis.")
