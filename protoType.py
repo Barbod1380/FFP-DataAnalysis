@@ -1,80 +1,459 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
+import plotly.graph_objects as go
 import plotly.express as px
+from plotly.subplots import make_subplots
 
-# Parse clock-position ("H:MM") → numeric hours
-def parse_clock_to_float(val):
-    try:
-        h, m = val.split(":")
-        return float(h) + float(m) / 60.0
-    except:
-        return None
+# Set page configuration
+st.set_page_config(
+    page_title="FFS Pipeline Analyzer",
+    page_icon="🛠️",
+    layout="wide"
+)
 
-# Page config
-st.set_page_config(page_title="FFS Pipeline Analyzer", layout="wide")
+# Helper functions
+def decimal_to_clock_str(decimal_hours):
+    """Convert decimal hours to clock format string."""
+    if pd.isna(decimal_hours):
+        return "Unknown"
+    
+    # Ensure the value is between 1 and 12
+    if decimal_hours < 1:
+        decimal_hours += 12
+    elif decimal_hours > 12:
+        decimal_hours = decimal_hours % 12
+        if decimal_hours == 0:
+            decimal_hours = 12
+    
+    hours = int(decimal_hours)
+    minutes = int((decimal_hours - hours) * 60)
+    
+    return f"{hours}:{minutes:02d}"
 
-# Title and Description
+def process_pipeline_data(df):
+    """Process the pipeline inspection data into two separate tables."""
+    # Make a copy to avoid modifying the original
+    df_copy = df.copy()
+    
+    # Replace empty strings with NaN for proper handling
+    df_copy = df_copy.replace(r'^\s*$', np.nan, regex=True)
+    
+    # Convert numeric columns to appropriate types
+    numeric_columns = [
+        'log dist. [m]', 
+        'joint length [m]', 
+        'wt nom [mm]', 
+        'up weld dist. [m]', 
+        'depth [%]', 
+        'length [mm]', 
+        'width [mm]'
+    ]
+    
+    for col in numeric_columns:
+        if col in df_copy.columns:
+            df_copy[col] = pd.to_numeric(df_copy[col], errors='coerce')
+    
+    # Handle clock position (convert to numeric)
+    if 'clock' in df_copy.columns:
+        df_copy['clock'] = pd.to_numeric(df_copy['clock'], errors='coerce')
+    
+    # Sort by log distance to ensure proper order for forward fill
+    if 'log dist. [m]' in df_copy.columns:
+        df_copy = df_copy.sort_values('log dist. [m]')
+    
+    # Create joints_df with specified columns
+    joints_df = df_copy[df_copy['joint number'].notna()][['joint number', 'joint length [m]', 'wt nom [mm]', 'log dist. [m]']].copy()
+    
+    # Drop duplicate joint numbers if any
+    joints_df = joints_df.drop_duplicates(subset=['joint number'])
+    
+    # Forward fill joint number to associate defects with joints
+    df_copy['joint number'] = df_copy['joint number'].fillna(method='ffill')
+    
+    # Filter for records that have both length and width values
+    defects_df = df_copy[
+        df_copy['length [mm]'].notna() & 
+        df_copy['width [mm]'].notna()
+    ].copy()
+    
+    # Select only the specified columns
+    defect_columns = [
+        'log dist. [m]',
+        'component / anomaly identification',
+        'joint number',
+        'up weld dist. [m]',
+        'clock',
+        'depth [%]',
+        'length [mm]',
+        'width [mm]',
+        'surface location'
+    ]
+    
+    # Check which columns exist in the data
+    available_columns = [col for col in defect_columns if col in df_copy.columns]
+    
+    # Select only available columns
+    defects_df = defects_df[available_columns]
+    
+    # Create additional columns
+    if 'clock' in defects_df.columns:
+        defects_df['clock_float'] = defects_df['clock']
+        
+    # Calculate area
+    if all(col in defects_df.columns for col in ['length [mm]', 'width [mm]']):
+        defects_df['area_mm2'] = defects_df['length [mm]'] * defects_df['width [mm]']
+    
+    # Convert joint number to Int64
+    if 'joint number' in defects_df.columns:
+        defects_df['joint number'] = defects_df['joint number'].astype("Int64")
+    
+    return joints_df, defects_df
+
+def create_unwrapped_pipeline_visualization(defects_df, joints_df):
+    """Create an enhanced unwrapped cylinder visualization of pipeline defects."""
+    # Precompute marker sizes (relative scale with better range)
+    min_size, max_size = 5, 30
+    area = defects_df["area_mm2"].fillna(0)
+    scaled_sizes = np.clip(
+        (area / area.max()) * max_size,
+        min_size,
+        max_size
+    )
+    
+    # Create clock_str column for hover display
+    defects_df['clock_str'] = defects_df['clock_float'].apply(decimal_to_clock_str)
+    
+    # Get actual max depth for dynamic color scaling
+    max_depth = defects_df["depth [%]"].max()
+    
+    # Prepare color dimensions for different visualization modes
+    color_modes = {
+        "Depth (%)": {
+            "column": "depth [%]",
+            "colorscale": "RdYlBu_r",
+            "color_range": [0, max_depth]
+        },
+        "Surface Location": {
+            "column": "surface location",
+            "colorscale": "Viridis",
+            "is_categorical": True
+        },
+        "Area (mm²)": {
+            "column": "area_mm2",
+            "colorscale": "Plasma",
+            "color_range": [0, defects_df["area_mm2"].max()]
+        }
+    }
+    
+    # Create figure with subplots
+    fig = make_subplots(rows=1, cols=1, 
+                        specs=[[{"secondary_y": True}]])
+    
+    # Add one scatter trace per color mode
+    for i, (label, config) in enumerate(color_modes.items()):
+        col = config["column"]
+        
+        # Skip modes with missing data
+        if col not in defects_df.columns:
+            continue
+            
+        if config.get("is_categorical", False):
+            # For categorical data like surface location
+            unique_values = defects_df[col].dropna().unique()
+            color_map = px.colors.qualitative.Bold
+            
+            for j, val in enumerate(unique_values):
+                mask = defects_df[col] == val
+                color = color_map[j % len(color_map)]
+                
+                fig.add_trace(go.Scatter(
+                    x=defects_df.loc[mask, "log dist. [m]"],
+                    y=defects_df.loc[mask, "clock_float"],
+                    mode="markers",
+                    marker=dict(
+                        size=scaled_sizes[mask],
+                        color=color,
+                        opacity=0.8,
+                        line=dict(width=1, color='white')
+                    ),
+                    name=f"{val}",
+                    legendgroup=label,
+                    customdata=np.stack([
+                        defects_df.loc[mask, "joint number"].astype(str),
+                        defects_df.loc[mask, "component / anomaly identification"],
+                        defects_df.loc[mask, "depth [%]"].fillna(0),
+                        defects_df.loc[mask, "area_mm2"].fillna(0),
+                        defects_df.loc[mask, "clock_str"]
+                    ], axis=-1),
+                    hovertemplate=(
+                        "<b>%{customdata[1]}</b><br>"
+                        "<b>Distance:</b> %{x:.2f} m<br>"
+                        "<b>Clock:</b> %{customdata[4]}<br>"
+                        "<b>Depth:</b> %{customdata[2]:.1f}%<br>"
+                        "<b>Area:</b> %{customdata[3]:.1f} mm²<br>"
+                        "<b>Joint:</b> %{customdata[0]}<br>"
+                        f"<b>{label}:</b> {val}<extra></extra>"
+                    ),
+                    visible=(i == 0)
+                ))
+        else:
+            # For continuous data like depth
+            fig.add_trace(go.Scatter(
+                x=defects_df["log dist. [m]"],
+                y=defects_df["clock_float"],
+                mode="markers",
+                marker=dict(
+                    size=scaled_sizes,
+                    color=defects_df[col],
+                    colorscale=config["colorscale"],
+                    cmin=config.get("color_range", [defects_df[col].min(), defects_df[col].max()])[0],
+                    cmax=config.get("color_range", [defects_df[col].min(), defects_df[col].max()])[1],
+                    colorbar=dict(
+                        title=label,
+                        thickness=20,
+                        len=0.6,
+                        y=0.5,
+                        yanchor="middle",
+                        titleside="right"
+                    ),
+                    opacity=0.8,
+                    line=dict(width=1, color='white')
+                ),
+                name=label,
+                legendgroup=label,
+                customdata=np.stack([
+                    defects_df["joint number"].astype(str),
+                    defects_df["component / anomaly identification"],
+                    defects_df["depth [%]"].fillna(0),
+                    defects_df["area_mm2"].fillna(0),
+                    defects_df["clock_str"]
+                ], axis=-1),
+                hovertemplate=(
+                    "<b>%{customdata[1]}</b><br>"
+                    "<b>Distance:</b> %{x:.2f} m<br>"
+                    "<b>Clock:</b> %{customdata[4]}<br>"
+                    "<b>Depth:</b> %{customdata[2]:.1f}%<br>"
+                    "<b>Area:</b> %{customdata[3]:.1f} mm²<br>"
+                    "<b>Joint:</b> %{customdata[0]}<br>"
+                    f"<b>{label}:</b> %{{marker.color:.1f}}<extra></extra>"
+                ),
+                visible=(i == 0)
+            ))
+    
+    # Add a background grid representing clock positions
+    for hour in range(1, 13):
+        # Horizontal lines for each hour
+        fig.add_shape(
+            type="line",
+            x0=defects_df["log dist. [m]"].min() - 1,
+            x1=defects_df["log dist. [m]"].max() + 1,
+            y0=hour,
+            y1=hour,
+            line=dict(color="lightgray", width=1, dash="dot"),
+            layer="below"
+        )
+    
+    # Add joint boundaries with improved styling
+    for _, row in joints_df.iterrows():
+        x0 = row["log dist. [m]"]
+        joint_num = row["joint number"]
+        
+        # Add joint annotation
+        fig.add_annotation(
+            x=x0,
+            y=13.5,
+            text=f"Joint {joint_num}",
+            showarrow=False,
+            yanchor="bottom",
+            font=dict(size=10, color="rgba(50, 50, 50, 0.9)")
+        )
+    
+    # Create buttons for switching between color modes
+    buttons = []
+    for i, label in enumerate(color_modes):
+        # Count total number of traces per mode (can vary for categorical)
+        trace_counts = []
+        running_count = 0
+        
+        for mode_label, config in color_modes.items():
+            if config.get("is_categorical", False) and mode_label in defects_df.columns:
+                unique_count = len(defects_df[config["column"]].dropna().unique())
+                trace_counts.append(unique_count)
+                running_count += unique_count
+            else:
+                trace_counts.append(1)
+                running_count += 1
+        
+        # Calculate which traces should be visible for this mode
+        visible = [False] * running_count
+        start_idx = sum(trace_counts[:i])
+        end_idx = start_idx + trace_counts[i]
+        for j in range(start_idx, end_idx):
+            visible[j] = True
+        
+        buttons.append(dict(
+            label=label,
+            method="update",
+            args=[{"visible": visible},
+                  {"title": f"Pipeline Defect Map — {label} Mode"}]
+        ))
+    
+    # Update axes and layout
+    fig.update_xaxes(
+        title_text="Distance Along Pipeline (m)",
+        showgrid=True,
+        gridcolor="rgba(200, 200, 200, 0.2)",
+        zeroline=False,
+        # Clean up the x-axis by setting specific tick values and formatting
+        tickmode="array",
+        tickvals=np.linspace(defects_df["log dist. [m]"].min(), defects_df["log dist. [m]"].max(), 10),
+        ticktext=[f"{x:.0f}" for x in np.linspace(defects_df["log dist. [m]"].min(), defects_df["log dist. [m]"].max(), 10)],
+        showticklabels=True
+    )
+    
+    fig.update_yaxes(
+        title_text="Clock Position (hr)",
+        tickmode="array",
+        tickvals=list(range(1, 14)),
+        ticktext=[f"{h}:00" for h in range(1, 14)],
+        range=[0.5, 13.5],
+        showgrid=True,
+        gridcolor="rgba(200, 200, 200, 0.2)",
+        zeroline=False
+    )
+    
+    # Add pipeline schematic on secondary y-axis for context
+    if not joints_df.empty:
+        # Configure secondary y-axis
+        fig.update_yaxes(
+            range=[-0.1, 0.1],
+            visible=False,
+            secondary_y=True
+        )
+    
+    # Improve layout
+    fig.update_layout(
+        title={
+            'text': "Pipeline Defect Map — Unwrapped Cylinder View",
+            'y':0.95,
+            'x':0.5,
+            'xanchor': 'center',
+            'yanchor': 'top',
+            'font': dict(size=20)
+        },
+        plot_bgcolor="white",
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1
+        ),
+        margin=dict(l=50, r=50, t=100, b=80),
+        updatemenus=[dict(
+            active=0,
+            buttons=buttons,
+            x=0.15,
+            y=1.12,
+            xanchor="left",
+            yanchor="top",
+            bgcolor="rgba(240, 240, 240, 0.8)",
+            bordercolor="rgba(100, 100, 100, 0.5)",
+            pad={"r": 10, "t": 10},
+            button_width=160
+        )],
+        height=700,
+        annotations=[
+            # Add a clear label for the visualization mode dropdown
+            dict(
+                text="Color By:",
+                x=0.05,
+                y=1.12,
+                xref="paper",
+                yref="paper",
+                showarrow=False,
+                font=dict(size=12, color="black"),
+                align="left"
+            )
+        ]
+    )
+    
+    # Add annotations explaining the visualization
+    fig.add_annotation(
+        text="Larger markers indicate larger defect areas",
+        x=0.01,
+        y=-0.12,
+        xref="paper",
+        yref="paper",
+        showarrow=False,
+        font=dict(size=10, color="gray"),
+        align="left"
+    )
+    
+    # Add clock position reference annotation
+    fig.add_annotation(
+        text="Clock positions: Top=13:00, Right=3:00, Bottom=6:00, Left=9:00",
+        x=0.01,
+        y=-0.15,
+        xref="paper",
+        yref="paper",
+        showarrow=False,
+        font=dict(size=10, color="gray"),
+        align="left"
+    )
+    
+    # Add critical zone indication
+    fig.add_shape(
+        type="rect",
+        x0=defects_df["log dist. [m]"].min() - 1,
+        x1=defects_df["log dist. [m]"].max() + 1,
+        y0=1,
+        y1=13,
+        fillcolor="rgba(255, 0, 0, 0.05)",
+        line=dict(width=0),
+        layer="below"
+    )
+    
+    return fig
+
+# Application title
 st.title("🛠️ FFS Pipeline Defect Analyzer")
-st.markdown("""
-Welcome to the **Fitness-for-Service (FFS)** pipeline defect analysis tool.  
-Upload a `.csv` file containing your pipeline defect data to begin.
-""")
 
-# Upload CSV File
+# File uploader
 uploaded_file = st.file_uploader("📂 Upload your pipeline data (.csv)", type="csv")
 
-# If file is uploaded, show basic info
+# Process uploaded file
 if uploaded_file is not None:
-    st.success("✅ File uploaded successfully!")
     try:
+        # Read data
         df = pd.read_csv(uploaded_file)
-        st.subheader("📄 Preview of Uploaded Data")
-        st.dataframe(df.head(10), use_container_width=True)
-
-        # Convert columns to numeric safely
-        numeric_cols = ["length [mm]", "width [mm]", "depth [%]", "ERF B31G"]
-        for col in numeric_cols:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
-
-        # Convert clock string to float hour format
-        df["clock_float"] = df["clock"].astype(str).apply(parse_clock_to_float)
-
-        # Compute defect area in mm²
-        df["area_mm2"] = df["length [mm]"] * df["width [mm]"]
-
-        # Identify joint boundaries
-        joint_starts = df.loc[df["joint number"].notna(), "log dist. [m]"].unique()
-
-        # Build the scatter plot
-        fig = px.scatter(
-            df,
-            x="log dist. [m]",
-            y="clock_float",
-            size="area_mm2",
-            hover_data=["component / anomaly identification", "depth [%]", "ERF B31G"],
-            title="Defect Map — Unwrapped Pipe Surface",
-            labels={
-                "log dist. [m]": "Distance along pipe (m)",
-                "clock_float": "Clock position (hours)"
-            }
-        )
-
-        # Add vertical lines at joint starts
-        ymin, ymax = df["clock_float"].min(), df["clock_float"].max()
-        for pos in joint_starts:
-            fig.add_shape(
-                type="line",
-                x0=pos, x1=pos,
-                y0=ymin, y1=ymax,
-                line=dict(color="black", dash="dash"),
-                opacity=0.5,
-            )
-
-        # Render the chart
-        st.subheader("🗺 Defect Scatter — Flat Map")
-        st.plotly_chart(fig, use_container_width=True)
-
+        st.success("✅ File uploaded successfully!")
+        
+        # Process data
+        joints_df, defects_df = process_pipeline_data(df)
+        
+        # Display joint information
+        st.header("Pipeline Joints")
+        st.dataframe(joints_df.head(10), use_container_width=True)
+        st.text(f"Total joints: {len(joints_df)}")
+        
+        # Display defect information
+        st.header("Pipeline Defects")
+        st.dataframe(defects_df.head(10), use_container_width=True) 
+        st.text(f"Total defects: {len(defects_df)}")
+        
+        # Create and display unwrapped pipeline visualization
+        st.header("Unwrapped Pipeline Visualization")
+        
+        if not defects_df.empty:
+            with st.spinner("Generating visualization..."):
+                fig = create_unwrapped_pipeline_visualization(defects_df, joints_df)
+                st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.warning("No defect data available for visualization.")
+            
     except Exception as e:
-        st.error(f"❌ Error reading file: {e}")
+        st.error(f"Error processing file: {str(e)}")
 else:
-    st.info("Please upload a CSV file to proceed.")
+    st.info("Please upload a CSV file containing pipeline inspection data to begin analysis.")
