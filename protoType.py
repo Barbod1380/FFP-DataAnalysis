@@ -11,7 +11,6 @@ st.set_page_config(page_title="Pipeline Inspection Visualization", layout="wide"
 # Add app title
 st.title("Pipeline Inspection Data Visualization")
 
-# Define the process_pipeline_data function
 def process_pipeline_data(df):
     """
     Process the pipeline inspection data into two separate tables:
@@ -29,7 +28,7 @@ def process_pipeline_data(df):
     df_copy = df.copy()
     
     # 1. Replace empty strings with NaN for proper handling
-    df_copy = df_copy.replace(r'^\s*', np.nan, regex=True)
+    df_copy = df_copy.replace(r'^\s*$', np.nan, regex=True)
     
     # 2. Convert numeric columns to appropriate types
     numeric_columns = [
@@ -55,7 +54,7 @@ def process_pipeline_data(df):
     
     # 6. Drop duplicate joint numbers if any
     joints_df = joints_df.drop_duplicates(subset=['joint number'])
-    joints_df = joints_df.reset_index().drop(columns=['index'])
+    joints_df = joints_df.reset_index().drop(columns = ['index'])
     
     # 7. Create defects_df - records with length and width values
     # First, forward fill joint number to associate defects with joints
@@ -85,9 +84,10 @@ def process_pipeline_data(df):
     
     # Select only available columns
     defects_df = defects_df[available_columns]
-    defects_df = defects_df.reset_index().drop(columns=['index'])
+    defects_df = defects_df.reset_index().drop(columns = ['index'])
     
     return joints_df, defects_df
+
 
 # Define the parse_clock function
 def parse_clock(clock_str):
