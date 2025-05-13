@@ -125,7 +125,7 @@ if uploaded_file is not None and not st.session_state.processed_data:
         st.session_state.processed_data = True
         
         # Rerun to show the visualization section
-        st.experimental_rerun()
+        st.rerun()  # Changed from st.experimental_rerun()
 
 # Only show the visualization section if we have processed data
 if st.session_state.processed_data and st.session_state.joints_df is not None and st.session_state.defects_df is not None:
@@ -191,7 +191,7 @@ if st.session_state.processed_data and st.session_state.joints_df is not None an
         st.session_state.processed_data = False
         st.session_state.joints_df = None
         st.session_state.defects_df = None
-        st.experimental_rerun()
+        st.rerun()  # Changed from st.experimental_rerun()
 else:
     if uploaded_file is None:
         st.info("Please upload a CSV file to begin analysis.")
