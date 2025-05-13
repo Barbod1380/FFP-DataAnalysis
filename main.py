@@ -368,6 +368,10 @@ if st.session_state.datasets:
                 step=0.01,
                 help="Maximum distance between defects to consider them at the same location"
             )
+
+            with st.expander("File Preview", expanded=True):
+                st.dataframe(earlier_defects.head(3))
+                st.dataframe(later_defects.head(3))
             
             # Button to perform comparison
             if st.button("Compare Defects"):
