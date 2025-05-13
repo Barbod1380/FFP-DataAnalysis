@@ -38,10 +38,12 @@ def compare_defects(old_defects_df, new_defects_df, distance_tolerance=0.1):
     
     # For each defect in the new dataset, find matching defects in the old dataset
     for _, new_defect in new_df.iterrows():
-        # Find defects of the same type within the distance tolerance
+        # Find defects of the same type within the distance tolerance 
+        # that haven't already been matched
         potential_matches = old_df[
             (old_df['component / anomaly identification'] == new_defect['component / anomaly identification']) & 
-            (abs(old_df['log dist. [m]'] - new_defect['log dist. [m]']) <= distance_tolerance)
+            (abs(old_df['log dist. [m]'] - new_defect['log dist. [m]']) <= distance_tolerance) &
+            (~old_df['defect_id'].isin(matched_old_ids))  # Only consider unmatched old defects
         ]
         
         if not potential_matches.empty:
@@ -56,6 +58,7 @@ def compare_defects(old_defects_df, new_defects_df, distance_tolerance=0.1):
                 'old_defect_id': closest_match['defect_id'],
                 'distance_diff': abs(closest_match['log dist. [m]'] - new_defect['log dist. [m]']),
                 'log_dist': new_defect['log dist. [m]'],
+                'old_log_dist': closest_match['log dist. [m]'],  # Added for better traceability
                 'defect_type': new_defect['component / anomaly identification']
             })
             
@@ -64,7 +67,7 @@ def compare_defects(old_defects_df, new_defects_df, distance_tolerance=0.1):
     
     # Create dataframe of matches
     matches_df = pd.DataFrame(matches) if matches else pd.DataFrame(columns=[
-        'new_defect_id', 'old_defect_id', 'distance_diff', 'log_dist', 'defect_type'
+        'new_defect_id', 'old_defect_id', 'distance_diff', 'log_dist', 'old_log_dist', 'defect_type'
     ])
     
     # Identify new defects (those in new_df that weren't matched)
@@ -98,7 +101,6 @@ def compare_defects(old_defects_df, new_defects_df, distance_tolerance=0.1):
         'pct_new': pct_new,
         'defect_type_distribution': defect_type_counts
     }
-    
     return results
 
 def create_comparison_stats_plot(comparison_results):
