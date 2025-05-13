@@ -90,6 +90,7 @@ def compare_defects(old_defects_df, new_defects_df, distance_tolerance = 0.1):
         'defect_type_distribution': dist
     }
 
+
 def create_comparison_stats_plot(comparison_results):
     """
     Create a pie chart showing new vs. common defects
@@ -103,9 +104,13 @@ def create_comparison_stats_plot(comparison_results):
     fig = go.Figure(data=[go.Pie(
         labels=labels,
         values=values,
-        hole=.3,
+        hole=0.3,
         textinfo='label+percent',
-        marker=dict(colors=['#2E86C1', '#EC7063'])
+        textposition='inside',  # Better placement of labels
+        insidetextorientation='radial',  # Makes text horizontal inside slices
+        marker=dict(colors=['#2E86C1', '#EC7063']),
+        direction='clockwise',  # Optional: control rotation direction
+        sort=False  # Keep the order of labels
     )])
     
     fig.update_layout(
@@ -115,6 +120,7 @@ def create_comparison_stats_plot(comparison_results):
     )
     
     return fig
+
 
 def create_new_defect_types_plot(comparison_results):
     """
@@ -153,86 +159,6 @@ def create_new_defect_types_plot(comparison_results):
         font=dict(size=14),
         height=500,
         xaxis=dict(tickangle=-45)  # Rotate x labels for better readability
-    )
-    
-    return fig
-
-def create_defect_location_plot(comparison_results, old_defects_df, new_defects_df):
-    """
-    Create a scatter plot showing the location of defects along the pipeline
-    Highlighting common and new defects
-    """
-    # Get matched and new defect IDs
-    matched_new_ids = set(comparison_results['matches_df']['new_defect_id']) if not comparison_results['matches_df'].empty else set()
-    
-    # Prepare data for plotting
-    common_defects = new_defects_df[new_defects_df['defect_id'].isin(matched_new_ids)].copy()
-    new_defects = comparison_results['new_defects']
-    
-    # Create plot
-    fig = go.Figure()
-    
-    # Add common defects
-    if not common_defects.empty:
-        fig.add_trace(go.Scatter(
-            x=common_defects['log dist. [m]'],
-            y=common_defects['clock_float'] if 'clock_float' in common_defects.columns else [1] * len(common_defects),
-            mode='markers',
-            name='Common Defects',
-            marker=dict(
-                color='#2E86C1',
-                size=10,
-                opacity=0.7
-            ),
-            hovertemplate=(
-                "<b>Common Defect</b><br>"
-                "Distance: %{x:.2f} m<br>"
-                "Type: %{customdata[0]}<br>"
-                "Depth: %{customdata[1]:.1f}%<extra></extra>"
-            ),
-            customdata=np.stack((
-                common_defects['component / anomaly identification'],
-                common_defects['depth [%]'].fillna(0)
-            ), axis=-1)
-        ))
-    
-    # Add new defects
-    if not new_defects.empty:
-        fig.add_trace(go.Scatter(
-            x=new_defects['log dist. [m]'],
-            y=new_defects['clock_float'] if 'clock_float' in new_defects.columns else [1] * len(new_defects),
-            mode='markers',
-            name='New Defects',
-            marker=dict(
-                color='#EC7063',
-                size=10,
-                opacity=0.7
-            ),
-            hovertemplate=(
-                "<b>New Defect</b><br>"
-                "Distance: %{x:.2f} m<br>"
-                "Type: %{customdata[0]}<br>"
-                "Depth: %{customdata[1]:.1f}%<extra></extra>"
-            ),
-            customdata=np.stack((
-                new_defects['component / anomaly identification'],
-                new_defects['depth [%]'].fillna(0)
-            ), axis=-1)
-        ))
-    
-    # Update layout
-    fig.update_layout(
-        title='Location of Common and New Defects Along Pipeline',
-        xaxis_title='Distance Along Pipeline (m)',
-        yaxis_title='Clock Position' if 'clock_float' in new_defects_df.columns else 'Position',
-        legend=dict(
-            yanchor="top",
-            y=0.99,
-            xanchor="right",
-            x=0.99
-        ),
-        hovermode='closest',
-        height=500
     )
     
     return fig
