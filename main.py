@@ -1,8 +1,7 @@
-# Modified main.py for multi-year sampling support
+# Enhanced main.py with robust encoding handling
 import streamlit as st
 import pandas as pd
 import numpy as np
-import os
 from datetime import datetime
 
 # Import functions from modules
@@ -16,14 +15,42 @@ from column_mapping import (
     STANDARD_COLUMNS,
     REQUIRED_COLUMNS
 )
-
-# Import the new functions
 from multi_year_analysis import (
     compare_defects, 
     create_comparison_stats_plot, 
     create_new_defect_types_plot,
     create_defect_location_plot
 )
+
+# Function to load CSV with multiple encoding attempts
+def load_csv_with_encoding(file):
+    """
+    Try to load a CSV file with different encodings.
+    Returns the DataFrame and the successful encoding.
+    """
+    encodings = ['utf-8', 'latin-1', 'cp1252', 'iso-8859-1']
+    
+    for encoding in encodings:
+        try:
+            # Reset file pointer to the beginning
+            file.seek(0)
+            
+            # Try to read with current encoding
+            df = pd.read_csv(
+                file, 
+                encoding=encoding,
+                sep=None,  # Auto-detect separator
+                engine='python',  # More flexible engine
+                on_bad_lines='warn'  # Continue despite bad lines
+            )
+            
+            return df, encoding
+            
+        except Exception as e:
+            continue  # Try next encoding
+    
+    # If all encodings fail
+    raise ValueError(f"Failed to load the file with any of the encodings: {', '.join(encodings)}")
 
 # Initialize session state for multiple datasets
 if 'datasets' not in st.session_state:
@@ -81,8 +108,14 @@ with st.sidebar:
 if uploaded_file is not None:
     # Create a container for the column mapping process
     with st.container():
-        # Load the data
-        df = pd.read_csv(uploaded_file)
+        # Load the data with robust encoding handling
+        try:
+            df, successful_encoding = load_csv_with_encoding(uploaded_file)
+            if successful_encoding != 'utf-8':
+                st.info(f"File loaded with {successful_encoding} encoding. Some special characters may display differently.")
+        except ValueError as e:
+            st.error(str(e))
+            st.stop()
         
         # Display file info in a collapsible section
         with st.expander("File Preview", expanded=True):
@@ -108,10 +141,25 @@ if uploaded_file is not None:
             
             # Split the standard columns into three groups
             third = len(STANDARD_COLUMNS) // 3
+            remaining = len(STANDARD_COLUMNS) % 3
+            
+            # Calculate split points for columns
+            if remaining == 1:
+                # First column gets one extra
+                split1 = third + 1
+                split2 = split1 + third
+            elif remaining == 2:
+                # First and second columns get one extra each
+                split1 = third + 1
+                split2 = split1 + third + 1
+            else:
+                # Even distribution
+                split1 = third
+                split2 = split1 + third
             
             # First column of mappings
             with col1:
-                for std_col in STANDARD_COLUMNS[:third]:
+                for std_col in STANDARD_COLUMNS[:split1]:
                     suggested = suggested_mapping.get(std_col)
                     index = 0 if suggested is None else all_columns.index(suggested)
                     
@@ -128,7 +176,7 @@ if uploaded_file is not None:
             
             # Second column of mappings
             with col2:
-                for std_col in STANDARD_COLUMNS[third:2*third]:
+                for std_col in STANDARD_COLUMNS[split1:split2]:
                     suggested = suggested_mapping.get(std_col)
                     index = 0 if suggested is None else all_columns.index(suggested)
                     
@@ -145,7 +193,7 @@ if uploaded_file is not None:
             
             # Third column of mappings
             with col3:
-                for std_col in STANDARD_COLUMNS[2*third:]:
+                for std_col in STANDARD_COLUMNS[split2:]:
                     suggested = suggested_mapping.get(std_col)
                     index = 0 if suggested is None else all_columns.index(suggested)
                     
@@ -277,6 +325,7 @@ if st.session_state.datasets:
                 fig = create_joint_defect_visualization(defects_df, selected_joint)
                 st.plotly_chart(fig, use_container_width=True)
     
+    # Tab 2: Multi-Year Comparison
     with tab2:
         st.header("Multi-Year Comparison")
         
