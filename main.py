@@ -125,6 +125,41 @@ if uploaded_file is not None:
         # Visualization section
         st.header("Visualization")
         
-        # ... (rest of the original code)
+        # Visualization type selection
+        viz_type = st.radio(
+            "Select Visualization Type",
+            ["Complete Pipeline", "Joint-by-Joint"],
+            horizontal=True
+        )
+        
+        if viz_type == "Complete Pipeline":
+            # Button to show visualization
+            if st.button("Show Complete Pipeline Visualization"):
+                st.subheader("Pipeline Defect Map")
+                fig = create_unwrapped_pipeline_visualization(defects_df, joints_df)
+                st.plotly_chart(fig, use_container_width=True)
+        else:
+            # Joint selection
+            available_joints = sorted(joints_df["joint number"].unique())
+            
+            # Format the joint numbers with their distance for better context
+            joint_options = {}
+            for joint in available_joints:
+                joint_row = joints_df[joints_df["joint number"] == joint].iloc[0]
+                distance = joint_row["log dist. [m]"]
+                joint_options[f"Joint {joint} (at {distance:.1f}m)"] = joint
+            
+            selected_joint_label = st.selectbox(
+                "Select Joint to Visualize",
+                options=list(joint_options.keys())
+            )
+            
+            selected_joint = joint_options[selected_joint_label]
+            
+            # Button to show joint visualization
+            if st.button("Show Joint Visualization"):
+                st.subheader(f"Defect Map for {selected_joint_label}")
+                fig = create_joint_defect_visualization(defects_df, selected_joint)
+                st.plotly_chart(fig, use_container_width=True)
 else:
     st.info("Please upload a CSV file to begin analysis.")
