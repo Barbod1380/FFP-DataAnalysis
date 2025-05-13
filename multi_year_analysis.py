@@ -5,103 +5,90 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-def compare_defects(old_defects_df, new_defects_df, distance_tolerance=0.1):
-    """
-    Compare defects between two inspection years to identify common and new defects.
-    
-    Parameters:
-    - old_defects_df: DataFrame with defects from the earlier inspection
-    - new_defects_df: DataFrame with defects from the newer inspection
-    - distance_tolerance: Maximum distance (in meters) to consider defects at the same location
-    
-    Returns:
-    - results: Dictionary with comparison results and statistics
-    """
-    # Make copies to avoid modifying the original dataframes
+def compare_defects(old_defects_df, new_defects_df, distance_tolerance = 0.1):
+    # Copy inputs
     old_df = old_defects_df.copy()
     new_df = new_defects_df.copy()
     
-    # Ensure required columns exist
-    required_cols = ['log dist. [m]', 'component / anomaly identification']
-    for col in required_cols:
-        if col not in old_df.columns or col not in new_df.columns:
-            raise ValueError(f"Column '{col}' missing from one of the datasets")
+    # Check columns
+    for col in ['log dist. [m]', 'component / anomaly identification']:
+        if col not in old_df or col not in new_df:
+            raise ValueError(f"Missing column: {col}")
     
-    # Add unique identifiers to track defects
+    # Assign IDs
     old_df['defect_id'] = range(len(old_df))
     new_df['defect_id'] = range(len(new_df))
     
-    # Track matched defects
-    matched_old_ids = set()
-    matched_new_ids = set()
+    matched_old = set()
+    matched_new = set()
     matches = []
     
-    # For each defect in the new dataset, find matching defects in the old dataset
     for _, new_defect in new_df.iterrows():
-        # Find defects of the same type within the distance tolerance 
-        # that haven't already been matched
-        potential_matches = old_df[
-            (old_df['component / anomaly identification'] == new_defect['component / anomaly identification']) & 
-            (abs(old_df['log dist. [m]'] - new_defect['log dist. [m]']) <= distance_tolerance) &
-            (~old_df['defect_id'].isin(matched_old_ids))  # Only consider unmatched old defects
-        ]
+        # Filter same‐type, within tolerance, not yet matched
+        mask = (
+            (old_df['component / anomaly identification']
+              == new_defect['component / anomaly identification'])
+            & (old_df['defect_id'].isin(matched_old) == False)
+            & (old_df['log dist. [m]']
+               .sub(new_defect['log dist. [m]'])
+               .abs() <= distance_tolerance)
+        )
+        potential_matches = old_df[mask]
         
         if not potential_matches.empty:
-            # Find the closest match
-            closest_match = potential_matches.iloc[
-                (potential_matches['log dist. [m]'] - new_defect['log dist. [m]']).abs().argsort()[0]
-            ]
+            # Find the index label of the minimal distance
+            dists = (potential_matches['log dist. [m]']
+                     - new_defect['log dist. [m]']).abs()
+            best_idx = dists.idxmin()
+            closest_match = potential_matches.loc[best_idx]
             
-            # Record the match
+            # Record it
             matches.append({
                 'new_defect_id': new_defect['defect_id'],
                 'old_defect_id': closest_match['defect_id'],
-                'distance_diff': abs(closest_match['log dist. [m]'] - new_defect['log dist. [m]']),
+                'distance_diff': dists.loc[best_idx],
                 'log_dist': new_defect['log dist. [m]'],
-                'old_log_dist': closest_match['log dist. [m]'],  # Added for better traceability
+                'old_log_dist': closest_match['log dist. [m]'],
                 'defect_type': new_defect['component / anomaly identification']
             })
             
-            matched_old_ids.add(closest_match['defect_id'])
-            matched_new_ids.add(new_defect['defect_id'])
+            matched_old.add(closest_match['defect_id'])
+            matched_new.add(new_defect['defect_id'])
     
-    # Create dataframe of matches
-    matches_df = pd.DataFrame(matches) if matches else pd.DataFrame(columns=[
-        'new_defect_id', 'old_defect_id', 'distance_diff', 'log_dist', 'old_log_dist', 'defect_type'
-    ])
+    # Build results
+    matches_df = pd.DataFrame(matches, 
+        columns=['new_defect_id','old_defect_id','distance_diff',
+                 'log_dist','old_log_dist','defect_type'])
+    new_defects = new_df.loc[~new_df['defect_id'].isin(matched_new)].copy()
     
-    # Identify new defects (those in new_df that weren't matched)
-    new_defects = new_df[~new_df['defect_id'].isin(matched_new_ids)].copy()
+    total = len(new_df)
+    common = len(matches_df)
+    new_cnt = len(new_defects)
     
-    # Calculate statistics
-    total_new_defects = len(new_df)
-    common_defects_count = len(matches_df)
-    new_defects_count = len(new_defects)
+    # Stats
+    pct_common = common/total*100 if total else 0
+    pct_new = new_cnt/total*100 if total else 0
     
-    # Percentage calculations
-    pct_common = (common_defects_count / total_new_defects) * 100 if total_new_defects > 0 else 0
-    pct_new = (new_defects_count / total_new_defects) * 100 if total_new_defects > 0 else 0
-    
-    # Distribution of new defect types
-    if not new_defects.empty:
-        defect_type_counts = new_defects['component / anomaly identification'].value_counts().reset_index()
-        defect_type_counts.columns = ['defect_type', 'count']
-        defect_type_counts['percentage'] = (defect_type_counts['count'] / new_defects_count) * 100
+    # Distribution of “truly new” types
+    if new_cnt:
+        dist = (new_defects['component / anomaly identification']
+                .value_counts()
+                .rename_axis('defect_type')
+                .reset_index(name='count'))
+        dist['percentage'] = dist['count']/new_cnt*100
     else:
-        defect_type_counts = pd.DataFrame(columns=['defect_type', 'count', 'percentage'])
+        dist = pd.DataFrame(columns=['defect_type','count','percentage'])
     
-    # Return results
-    results = {
+    return {
         'matches_df': matches_df,
         'new_defects': new_defects,
-        'common_defects_count': common_defects_count,
-        'new_defects_count': new_defects_count,
-        'total_defects': total_new_defects,
+        'common_defects_count': common,
+        'new_defects_count': new_cnt,
+        'total_defects': total,
         'pct_common': pct_common,
         'pct_new': pct_new,
-        'defect_type_distribution': defect_type_counts
+        'defect_type_distribution': dist
     }
-    return results
 
 def create_comparison_stats_plot(comparison_results):
     """
