@@ -15,10 +15,22 @@ from column_mapping import (
     REQUIRED_COLUMNS
 )
 
+# Initialize session state variables if they don't exist
+if 'processed_data' not in st.session_state:
+    st.session_state.processed_data = False
+if 'joints_df' not in st.session_state:
+    st.session_state.joints_df = None
+if 'defects_df' not in st.session_state:
+    st.session_state.defects_df = None
+
+# Set page title
+st.title("Pipeline Inspection Data Visualization")
+
 # File uploader section
 uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
 
-if uploaded_file is not None:
+# Reset processed state if a new file is uploaded
+if uploaded_file is not None and not st.session_state.processed_data:
     # Load the data
     df = pd.read_csv(uploaded_file)
     
@@ -107,59 +119,79 @@ if uploaded_file is not None:
         if 'joint number' in defects_df.columns:
             defects_df["joint number"] = defects_df["joint number"].astype("Int64")
         
-        # Display the tables
-        st.header("Data Preview")
+        # Store processed data in session state
+        st.session_state.joints_df = joints_df
+        st.session_state.defects_df = defects_df
+        st.session_state.processed_data = True
         
-        # Create two columns
-        col1, col2 = st.columns(2)
+        # Rerun to show the visualization section
+        st.experimental_rerun()
+
+# Only show the visualization section if we have processed data
+if st.session_state.processed_data and st.session_state.joints_df is not None and st.session_state.defects_df is not None:
+    joints_df = st.session_state.joints_df
+    defects_df = st.session_state.defects_df
+    
+    # Display the tables
+    st.header("Data Preview")
+    
+    # Create two columns
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("Joints Table (Top 10 Records)")
+        st.dataframe(joints_df.head(10))
+    
+    with col2:
+        st.subheader("Defects Table (Top 10 Records)")
+        st.dataframe(defects_df.head(10))
+    
+    # Visualization section
+    st.header("Visualization")
+    
+    # Visualization type selection
+    viz_type = st.radio(
+        "Select Visualization Type",
+        ["Complete Pipeline", "Joint-by-Joint"],
+        horizontal=True
+    )
+    
+    if viz_type == "Complete Pipeline":
+        # Button to show visualization
+        if st.button("Show Complete Pipeline Visualization"):
+            st.subheader("Pipeline Defect Map")
+            fig = create_unwrapped_pipeline_visualization(defects_df, joints_df)
+            st.plotly_chart(fig, use_container_width=True)
+    else:
+        # Joint selection
+        available_joints = sorted(joints_df["joint number"].unique())
         
-        with col1:
-            st.subheader("Joints Table (Top 10 Records)")
-            st.dataframe(joints_df.head(10))
+        # Format the joint numbers with their distance for better context
+        joint_options = {}
+        for joint in available_joints:
+            joint_row = joints_df[joints_df["joint number"] == joint].iloc[0]
+            distance = joint_row["log dist. [m]"]
+            joint_options[f"Joint {joint} (at {distance:.1f}m)"] = joint
         
-        with col2:
-            st.subheader("Defects Table (Top 10 Records)")
-            st.dataframe(defects_df.head(10))
-        
-        # Continue with the rest of your original application...
-        # Visualization section
-        st.header("Visualization")
-        
-        # Visualization type selection
-        viz_type = st.radio(
-            "Select Visualization Type",
-            ["Complete Pipeline", "Joint-by-Joint"],
-            horizontal=True
+        selected_joint_label = st.selectbox(
+            "Select Joint to Visualize",
+            options=list(joint_options.keys())
         )
         
-        if viz_type == "Complete Pipeline":
-            # Button to show visualization
-            if st.button("Show Complete Pipeline Visualization"):
-                st.subheader("Pipeline Defect Map")
-                fig = create_unwrapped_pipeline_visualization(defects_df, joints_df)
-                st.plotly_chart(fig, use_container_width=True)
-        else:
-            # Joint selection
-            available_joints = sorted(joints_df["joint number"].unique())
-            
-            # Format the joint numbers with their distance for better context
-            joint_options = {}
-            for joint in available_joints:
-                joint_row = joints_df[joints_df["joint number"] == joint].iloc[0]
-                distance = joint_row["log dist. [m]"]
-                joint_options[f"Joint {joint} (at {distance:.1f}m)"] = joint
-            
-            selected_joint_label = st.selectbox(
-                "Select Joint to Visualize",
-                options=list(joint_options.keys())
-            )
-            
-            selected_joint = joint_options[selected_joint_label]
-            
-            # Button to show joint visualization
-            if st.button("Show Joint Visualization"):
-                st.subheader(f"Defect Map for {selected_joint_label}")
-                fig = create_joint_defect_visualization(defects_df, selected_joint)
-                st.plotly_chart(fig, use_container_width=True)
+        selected_joint = joint_options[selected_joint_label]
+        
+        # Button to show joint visualization
+        if st.button("Show Joint Visualization"):
+            st.subheader(f"Defect Map for {selected_joint_label}")
+            fig = create_joint_defect_visualization(defects_df, selected_joint)
+            st.plotly_chart(fig, use_container_width=True)
+    
+    # Add a button to reset and upload a new file
+    if st.button("Process New File"):
+        st.session_state.processed_data = False
+        st.session_state.joints_df = None
+        st.session_state.defects_df = None
+        st.experimental_rerun()
 else:
-    st.info("Please upload a CSV file to begin analysis.")
+    if uploaded_file is None:
+        st.info("Please upload a CSV file to begin analysis.")
