@@ -411,14 +411,16 @@ if st.session_state.datasets:
                         with viz_tab1:
                             # Pie chart of common vs new defects
                             pie_fig = create_comparison_stats_plot(comparison_results)
-                            st.plotly_chart(pie_fig, use_container_width=True)
+                            st.plotly_chart(pie_fig, use_container_width = True)
                         
                         with viz_tab2:
+                            st.write("Dictionary content Test:")
                             # Bar chart of new defect types
                             bar_fig = create_new_defect_types_plot(comparison_results)
-                            st.plotly_chart(bar_fig, use_container_width=True)
+                            st.plotly_chart(bar_fig, use_container_width = True)
                         
                         with viz_tab3:
+                            st.write("Dictionary content Test2:")
                             # Scatter plot of defect locations
                             location_fig = create_defect_location_plot(
                                 comparison_results, 
