@@ -17,6 +17,14 @@ from column_mapping import (
     REQUIRED_COLUMNS
 )
 
+# Import the new functions
+from multi_year_analysis import (
+    compare_defects, 
+    create_comparison_stats_plot, 
+    create_new_defect_types_plot,
+    create_defect_location_plot
+)
+
 # Initialize session state for multiple datasets
 if 'datasets' not in st.session_state:
     st.session_state.datasets = {}  # Will store {year: {'joints_df': df1, 'defects_df': df2}}
@@ -269,12 +277,112 @@ if st.session_state.datasets:
                 fig = create_joint_defect_visualization(defects_df, selected_joint)
                 st.plotly_chart(fig, use_container_width=True)
     
-    # Tab 2: Multi-Year Comparison (to be implemented in next step)
     with tab2:
         st.header("Multi-Year Comparison")
-        st.info("Multi-year comparison visualization will be implemented in the next step.")
         
         if len(st.session_state.datasets) < 2:
             st.warning("Please upload at least two datasets from different years to enable comparison.")
+        else:
+            # Year selection for comparison
+            available_years = sorted(st.session_state.datasets.keys())
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                earlier_year = st.selectbox(
+                    "Select Earlier Year", 
+                    options=available_years[:-1],  # All but the last year
+                    index=0,
+                    key="earlier_year"
+                )
+            
+            with col2:
+                # Filter for years after the selected earlier year
+                later_years = [year for year in available_years if year > earlier_year]
+                later_year = st.selectbox(
+                    "Select Later Year", 
+                    options=later_years,
+                    index=0,
+                    key="later_year"
+                )
+            
+            # Get the datasets
+            earlier_defects = st.session_state.datasets[earlier_year]['defects_df']
+            later_defects = st.session_state.datasets[later_year]['defects_df']
+            
+            # Distance tolerance for matching defects
+            tolerance = st.slider(
+                "Distance Tolerance (m)", 
+                min_value=0.01, 
+                max_value=0.5, 
+                value=0.1, 
+                step=0.01,
+                help="Maximum distance between defects to consider them at the same location"
+            )
+            
+            # Button to perform comparison
+            if st.button("Compare Defects"):
+                with st.spinner(f"Comparing defects between {earlier_year} and {later_year}..."):
+                    try:
+                        # Perform the comparison
+                        comparison_results = compare_defects(
+                            earlier_defects, 
+                            later_defects,
+                            distance_tolerance=tolerance
+                        )
+                        
+                        # Display summary statistics
+                        st.subheader("Comparison Summary")
+                        
+                        # Create metrics in 4 columns
+                        metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
+                        
+                        with metric_col1:
+                            st.metric(label="Total Defects", value=comparison_results['total_defects'])
+                        
+                        with metric_col2:
+                            st.metric(label="Common Defects", value=comparison_results['common_defects_count'])
+                        
+                        with metric_col3:
+                            st.metric(label="New Defects", value=comparison_results['new_defects_count'])
+                        
+                        with metric_col4:
+                            st.metric(label="% New Defects", value=f"{comparison_results['pct_new']:.1f}%")
+                        
+                        # Create visualization tabs
+                        viz_tab1, viz_tab2, viz_tab3 = st.tabs(["Statistics", "Defect Types", "Location Map"])
+                        
+                        with viz_tab1:
+                            # Pie chart of common vs new defects
+                            pie_fig = create_comparison_stats_plot(comparison_results)
+                            st.plotly_chart(pie_fig, use_container_width=True)
+                        
+                        with viz_tab2:
+                            # Bar chart of new defect types
+                            bar_fig = create_new_defect_types_plot(comparison_results)
+                            st.plotly_chart(bar_fig, use_container_width=True)
+                        
+                        with viz_tab3:
+                            # Scatter plot of defect locations
+                            location_fig = create_defect_location_plot(
+                                comparison_results, 
+                                earlier_defects, 
+                                later_defects
+                            )
+                            st.plotly_chart(location_fig, use_container_width=True)
+                        
+                        # Display tables of common and new defects in an expander
+                        with st.expander("Detailed Defect Lists", expanded=False):
+                            if not comparison_results['matches_df'].empty:
+                                st.subheader("Common Defects")
+                                st.dataframe(comparison_results['matches_df'])
+                            
+                            if not comparison_results['new_defects'].empty:
+                                st.subheader("New Defects")
+                                st.dataframe(comparison_results['new_defects'])
+                    
+                    except Exception as e:
+                        st.error(f"Error comparing defects: {str(e)}")
+                        st.info("Make sure both datasets have the required columns and compatible data formats.")
 else:
     st.info("Please upload at least one dataset using the sidebar to begin analysis.")
