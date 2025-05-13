@@ -381,8 +381,11 @@ if st.session_state.datasets:
                         comparison_results = compare_defects(
                             earlier_defects, 
                             later_defects,
-                            distance_tolerance=tolerance
+                            distance_tolerance = tolerance
                         )
+
+                        # Option 2: Use st.write to show it in a readable format
+                        st.write("Dictionary content:", comparison_results)
                         
                         # Display summary statistics
                         st.subheader("Comparison Summary")
