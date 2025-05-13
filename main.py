@@ -19,7 +19,6 @@ from multi_year_analysis import (
     compare_defects, 
     create_comparison_stats_plot, 
     create_new_defect_types_plot,
-    create_defect_location_plot
 )
 
 # Function to load CSV with multiple encoding attempts
@@ -414,20 +413,9 @@ if st.session_state.datasets:
                             st.plotly_chart(pie_fig, use_container_width = True)
                         
                         with viz_tab2:
-                            st.write("Dictionary content Test:")
                             # Bar chart of new defect types
                             bar_fig = create_new_defect_types_plot(comparison_results)
                             st.plotly_chart(bar_fig, use_container_width = True)
-                        
-                        with viz_tab3:
-                            st.write("Dictionary content Test2:")
-                            # Scatter plot of defect locations
-                            location_fig = create_defect_location_plot(
-                                comparison_results, 
-                                earlier_defects, 
-                                later_defects
-                            )
-                            st.plotly_chart(location_fig, use_container_width=True)
                         
                         # Display tables of common and new defects in an expander
                         with st.expander("Detailed Defect Lists", expanded=False):
