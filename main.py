@@ -370,8 +370,8 @@ if st.session_state.datasets:
             )
 
             with st.expander("File Preview", expanded=True):
-                st.dataframe(earlier_defects.head(3))
-                st.dataframe(later_defects.head(3))
+                st.dataframe(earlier_defects.head(10))
+                st.dataframe(later_defects.head(10))
             
             # Button to perform comparison
             if st.button("Compare Defects"):
