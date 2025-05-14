@@ -512,7 +512,7 @@ def create_growth_rate_histogram(comparison_results):
     
     fig.add_trace(go.Histogram(
         x=positive_growth[growth_col],
-        nbins = 25,
+        nbinsx = 25,
         marker=dict(
             color='rgba(255, 100, 102, 0.7)',
             line=dict(color='rgba(255, 100, 102, 1)', width=1)
