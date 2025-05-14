@@ -361,9 +361,9 @@ if st.session_state.datasets:
             # Distance tolerance for matching defects
             tolerance = st.slider(
                 "Distance Tolerance (m)", 
-                min_value=0.01, 
-                max_value=0.5, 
-                value=0.1, 
+                min_value=0.001, 
+                max_value=0.1, 
+                value=0.01, 
                 step=0.01,
                 help="Maximum distance between defects to consider them at the same location"
             )

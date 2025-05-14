@@ -517,6 +517,7 @@ def create_growth_rate_histogram(comparison_results):
             color='rgba(255, 100, 102, 0.7)',
             line=dict(color='rgba(255, 100, 102, 1)', width=1)
         ),
+        autobinx = False,
         name='Positive Growth Rates'
     ))
     
