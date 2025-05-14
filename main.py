@@ -363,8 +363,9 @@ if st.session_state.datasets:
                 "Distance Tolerance (m)", 
                 min_value=0.001, 
                 max_value=0.1, 
-                value=0.01, 
+                value=0.001, 
                 step=0.001,
+                format="%.3f",
                 help="Maximum distance between defects to consider them at the same location"
             )
             
