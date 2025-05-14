@@ -372,15 +372,14 @@ if st.session_state.datasets:
             if st.button("Compare Defects"):
                 with st.spinner(f"Comparing defects between {earlier_year} and {later_year}..."):
                     try:
-                        # Perform the comparison
+                        # Perform the comparison with year values for growth rate calculation
                         comparison_results = compare_defects(
                             earlier_defects, 
                             later_defects,
-                            old_year=earlier_year,
-                            new_year=later_year,
+                            old_year=int(earlier_year),
+                            new_year=int(later_year),
                             distance_tolerance=tolerance
                         )
-                        
                         # Display summary statistics
                         st.subheader("Comparison Summary")
                         

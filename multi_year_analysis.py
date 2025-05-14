@@ -6,76 +6,78 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 
-def compare_defects(old_defects_df, new_defects_df, old_year, new_year, distance_tolerance=0.1):
+def compare_defects(old_defects_df, new_defects_df, old_year=None, new_year=None, distance_tolerance=0.1):
     """
     Compare defects between two inspection years to identify common and new defects.
     
     Parameters:
     - old_defects_df: DataFrame with defects from the earlier inspection
     - new_defects_df: DataFrame with defects from the newer inspection
-    - old_year: Year of the earlier inspection
-    - new_year: Year of the later inspection
+    - old_year: Year of the earlier inspection (optional, for growth rate calculation)
+    - new_year: Year of the later inspection (optional, for growth rate calculation)
     - distance_tolerance: Maximum distance (in meters) to consider defects at the same location
     
     Returns:
     - results: Dictionary with comparison results and statistics
     """
-    # Make copies to avoid modifying the original dataframes
+    # Copy inputs
     old_df = old_defects_df.copy()
     new_df = new_defects_df.copy()
     
-    # Calculate year difference for growth rate calculation
-    year_diff = new_year - old_year
-    if year_diff <= 0:
-        raise ValueError("New year must be greater than old year")
-    
-    # Ensure required columns exist
-    required_cols = ['log dist. [m]', 'component / anomaly identification']
-    for col in required_cols:
-        if col not in old_df.columns or col not in new_df.columns:
-            raise ValueError(f"Column '{col}' missing from one of the datasets")
+    # Check if we can calculate growth rates
+    calculate_growth = False
+    if old_year is not None and new_year is not None and new_year > old_year:
+        calculate_growth = True
+        year_diff = new_year - old_year
     
     # Check if depth data is available for growth calculations
     has_depth_data = ('depth [%]' in old_df.columns and 'depth [%]' in new_df.columns)
     has_wt_data = ('wt nom [mm]' in old_df.columns and 'wt nom [mm]' in new_df.columns)
     
-    # Add unique identifiers to track defects
+    # Check columns
+    for col in ['log dist. [m]', 'component / anomaly identification']:
+        if col not in old_df or col not in new_df:
+            raise ValueError(f"Missing column: {col}")
+    
+    # Assign IDs
     old_df['defect_id'] = range(len(old_df))
     new_df['defect_id'] = range(len(new_df))
     
-    # Track matched defects
-    matched_old_ids = set()
-    matched_new_ids = set()
+    matched_old = set()
+    matched_new = set()
     matches = []
     
-    # For each defect in the new dataset, find matching defects in the old dataset
     for _, new_defect in new_df.iterrows():
-        # Find defects of the same type within the distance tolerance
-        # that haven't already been matched
-        potential_matches = old_df[
-            (old_df['component / anomaly identification'] == new_defect['component / anomaly identification']) & 
-            (abs(old_df['log dist. [m]'] - new_defect['log dist. [m]']) <= distance_tolerance) &
-            (~old_df['defect_id'].isin(matched_old_ids))  # Only consider unmatched old defects
-        ]
+        # Filter same‐type, within tolerance, not yet matched
+        mask = (
+            (old_df['component / anomaly identification']
+              == new_defect['component / anomaly identification'])
+            & (old_df['defect_id'].isin(matched_old) == False)
+            & (old_df['log dist. [m]']
+               .sub(new_defect['log dist. [m]'])
+               .abs() <= distance_tolerance)
+        )
+        potential_matches = old_df[mask]
         
         if not potential_matches.empty:
-            # Find the closest match
-            closest_match = potential_matches.iloc[
-                (potential_matches['log dist. [m]'] - new_defect['log dist. [m]']).abs().argsort()[0]
-            ]
+            # Find the index label of the minimal distance
+            dists = (potential_matches['log dist. [m]']
+                     - new_defect['log dist. [m]']).abs()
+            best_idx = dists.idxmin()
+            closest_match = potential_matches.loc[best_idx]
             
-            # Initialize match data with basic info
+            # Basic match data
             match_data = {
                 'new_defect_id': new_defect['defect_id'],
                 'old_defect_id': closest_match['defect_id'],
-                'distance_diff': abs(closest_match['log dist. [m]'] - new_defect['log dist. [m]']),
+                'distance_diff': dists.loc[best_idx],
                 'log_dist': new_defect['log dist. [m]'],
                 'old_log_dist': closest_match['log dist. [m]'],
                 'defect_type': new_defect['component / anomaly identification']
             }
             
-            # Add depth and growth information if available
-            if has_depth_data:
+            # Add growth data if available
+            if calculate_growth and has_depth_data:
                 old_depth = closest_match['depth [%]']
                 new_depth = new_defect['depth [%]']
                 
@@ -107,48 +109,46 @@ def compare_defects(old_defects_df, new_defects_df, old_year, new_year, distance
                     })
             
             matches.append(match_data)
-            
-            matched_old_ids.add(closest_match['defect_id'])
-            matched_new_ids.add(new_defect['defect_id'])
+            matched_old.add(closest_match['defect_id'])
+            matched_new.add(new_defect['defect_id'])
     
-    # Create dataframe of matches
-    if matches:
-        matches_df = pd.DataFrame(matches)
+    # Column list for empty dataframe handling
+    columns = ['new_defect_id', 'old_defect_id', 'distance_diff', 
+               'log_dist', 'old_log_dist', 'defect_type']
+               
+    if calculate_growth and has_depth_data:
+        columns.extend(['old_depth_pct', 'new_depth_pct', 'depth_change_pct', 
+                       'growth_rate_pct_per_year', 'is_negative_growth'])
+        if has_wt_data:
+            columns.extend(['old_depth_mm', 'new_depth_mm', 'depth_change_mm', 
+                           'growth_rate_mm_per_year'])
+    
+    # Build results
+    matches_df = pd.DataFrame(matches, columns=columns) if matches else pd.DataFrame(columns=columns)
+    new_defects = new_df.loc[~new_df['defect_id'].isin(matched_new)].copy()
+    
+    total = len(new_df)
+    common = len(matches_df)
+    new_cnt = len(new_defects)
+    
+    # Stats
+    pct_common = common/total*100 if total else 0
+    pct_new = new_cnt/total*100 if total else 0
+    
+    # Distribution of "truly new" types
+    if new_cnt:
+        dist = (new_defects['component / anomaly identification']
+                .value_counts()
+                .rename_axis('defect_type')
+                .reset_index(name='count'))
+        dist['percentage'] = dist['count']/new_cnt*100
     else:
-        # Create empty dataframe with appropriate columns
-        columns = ['new_defect_id', 'old_defect_id', 'distance_diff', 'log_dist', 
-                   'old_log_dist', 'defect_type']
-        if has_depth_data:
-            columns.extend(['old_depth_pct', 'new_depth_pct', 'depth_change_pct', 
-                           'growth_rate_pct_per_year', 'is_negative_growth'])
-            if has_wt_data:
-                columns.extend(['old_depth_mm', 'new_depth_mm', 'depth_change_mm', 
-                               'growth_rate_mm_per_year'])
-        matches_df = pd.DataFrame(columns=columns)
-    
-    # Identify new defects (those in new_df that weren't matched)
-    new_defects = new_df[~new_df['defect_id'].isin(matched_new_ids)].copy()
-    
-    # Calculate statistics
-    total_new_defects = len(new_df)
-    common_defects_count = len(matches_df)
-    new_defects_count = len(new_defects)
-    
-    # Percentage calculations
-    pct_common = (common_defects_count / total_new_defects) * 100 if total_new_defects > 0 else 0
-    pct_new = (new_defects_count / total_new_defects) * 100 if total_new_defects > 0 else 0
-    
-    # Distribution of new defect types
-    if not new_defects.empty:
-        defect_type_counts = new_defects['component / anomaly identification'].value_counts().reset_index()
-        defect_type_counts.columns = ['defect_type', 'count']
-        defect_type_counts['percentage'] = (defect_type_counts['count'] / new_defects_count) * 100
-    else:
-        defect_type_counts = pd.DataFrame(columns=['defect_type', 'count', 'percentage'])
+        dist = pd.DataFrame(columns=['defect_type', 'count', 'percentage'])
     
     # Calculate growth statistics if depth data is available
-    if has_depth_data and not matches_df.empty:
-        # Growth statistics - first in percentage points
+    growth_stats = None
+    if calculate_growth and has_depth_data and not matches_df.empty:
+        # Growth statistics
         negative_growth_count = matches_df['is_negative_growth'].sum()
         pct_negative_growth = (negative_growth_count / len(matches_df)) * 100 if len(matches_df) > 0 else 0
         
@@ -171,25 +171,21 @@ def compare_defects(old_defects_df, new_defects_df, old_year, new_year, distance
                 'avg_positive_growth_rate_mm': positive_growth['growth_rate_mm_per_year'].mean() if len(positive_growth) > 0 else 0,
                 'max_growth_rate_mm': positive_growth['growth_rate_mm_per_year'].max() if len(positive_growth) > 0 else 0
             })
-    else:
-        growth_stats = None
     
-    # Return results
-    results = {
+    return {
         'matches_df': matches_df,
         'new_defects': new_defects,
-        'common_defects_count': common_defects_count,
-        'new_defects_count': new_defects_count,
-        'total_defects': total_new_defects,
+        'common_defects_count': common,
+        'new_defects_count': new_cnt,
+        'total_defects': total,
         'pct_common': pct_common,
         'pct_new': pct_new,
-        'defect_type_distribution': defect_type_counts,
+        'defect_type_distribution': dist,
         'growth_stats': growth_stats,
         'has_depth_data': has_depth_data,
-        'has_wt_data': has_wt_data
+        'has_wt_data': has_wt_data,
+        'calculate_growth': calculate_growth
     }
-    
-    return results
 
 
 def create_comparison_stats_plot(comparison_results):
