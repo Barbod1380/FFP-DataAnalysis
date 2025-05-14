@@ -466,3 +466,218 @@ def create_joint_defect_visualization(defects_df, joint_number):
     )
 
     return fig
+
+
+def create_growth_rate_histogram(comparison_results):
+    """
+    Create a histogram showing the distribution of positive corrosion growth rates
+    """
+    if (not comparison_results['has_depth_data'] or 
+        comparison_results['matches_df'].empty):
+        fig = go.Figure()
+        fig.add_annotation(
+            text="No growth rate data available",
+            xref="paper", yref="paper",
+            x=0.5, y=0.5, showarrow=False,
+            font=dict(size=20)
+        )
+        return fig
+    
+    # Get the matches dataframe
+    matches_df = comparison_results['matches_df']
+    
+    # Filter for positive growth only
+    positive_growth = matches_df[~matches_df['is_negative_growth']]
+    
+    if positive_growth.empty:
+        fig = go.Figure()
+        fig.add_annotation(
+            text="No positive growth data available",
+            xref="paper", yref="paper",
+            x=0.5, y=0.5, showarrow=False,
+            font=dict(size=20)
+        )
+        return fig
+    
+    # Use mm data if available, otherwise use percentage
+    if comparison_results['has_wt_data']:
+        growth_col = 'growth_rate_mm_per_year'
+        x_title = 'Growth Rate (mm/year)'
+    else:
+        growth_col = 'growth_rate_pct_per_year'
+        x_title = 'Growth Rate (% points/year)'
+    
+    # Create histogram
+    fig = go.Figure()
+    
+    fig.add_trace(go.Histogram(
+        x=positive_growth[growth_col],
+        nbinsx=20,
+        marker=dict(
+            color='rgba(255, 100, 102, 0.7)',
+            line=dict(color='rgba(255, 100, 102, 1)', width=1)
+        ),
+        name='Positive Growth Rates'
+    ))
+    
+    # Add vertical line at average growth rate
+    mean_growth = positive_growth[growth_col].mean()
+    
+    fig.add_shape(
+        type="line",
+        x0=mean_growth, x1=mean_growth,
+        y0=0, y1=1,
+        yref="paper",
+        line=dict(color="red", width=2, dash="dash"),
+    )
+    
+    fig.add_annotation(
+        x=mean_growth,
+        y=1,
+        yref="paper",
+        text=f"Mean: {mean_growth:.3f}",
+        showarrow=True,
+        arrowhead=1,
+        ax=40,
+        ay=-30
+    )
+    
+    # Layout
+    fig.update_layout(
+        title='Distribution of Positive Defect Growth Rates',
+        xaxis_title=x_title,
+        yaxis_title='Count',
+        bargap=0.1,
+        bargroupgap=0.1,
+        height=500
+    )
+    
+    return fig
+
+def create_negative_growth_plot(comparison_results):
+    """
+    Create a scatter plot highlighting negative growth defects
+    """
+    if (not comparison_results['has_depth_data'] or 
+        comparison_results['matches_df'].empty):
+        fig = go.Figure()
+        fig.add_annotation(
+            text="No growth rate data available",
+            xref="paper", yref="paper",
+            x=0.5, y=0.5, showarrow=False,
+            font=dict(size=20)
+        )
+        return fig
+    
+    # Get the matches dataframe
+    matches_df = comparison_results['matches_df']
+    
+    # Split into negative and positive growth
+    negative_growth = matches_df[matches_df['is_negative_growth']]
+    positive_growth = matches_df[~matches_df['is_negative_growth']]
+    
+    if negative_growth.empty:
+        fig = go.Figure()
+        fig.add_annotation(
+            text="No negative growth anomalies detected",
+            xref="paper", yref="paper",
+            x=0.5, y=0.5, showarrow=False,
+            font=dict(size=20)
+        )
+        return fig
+    
+    # Use mm data if available, otherwise use percentage
+    if comparison_results['has_wt_data']:
+        old_depth_col = 'old_depth_mm'
+        new_depth_col = 'new_depth_mm'
+        growth_col = 'growth_rate_mm_per_year'
+        y_title = 'Growth Rate (mm/year)'
+    else:
+        old_depth_col = 'old_depth_pct'
+        new_depth_col = 'new_depth_pct'
+        growth_col = 'growth_rate_pct_per_year'
+        y_title = 'Growth Rate (% points/year)'
+    
+    # Create scatter plot
+    fig = go.Figure()
+    
+    # Add positive growth defects
+    if not positive_growth.empty:
+        fig.add_trace(go.Scatter(
+            x=positive_growth['log_dist'],
+            y=positive_growth[growth_col],
+            mode='markers',
+            marker=dict(
+                size=10,
+                color='blue',
+                opacity=0.5
+            ),
+            name='Positive Growth',
+            hovertemplate=(
+                "<b>Location:</b> %{x:.2f}m<br>"
+                f"<b>Growth Rate:</b> %{{y:.3f}}{y_title.split(' ')[1]}<br>"
+                f"<b>Old Depth:</b> %{{customdata[0]:.2f}}{' mm' if comparison_results['has_wt_data'] else '%'}<br>"
+                f"<b>New Depth:</b> %{{customdata[1]:.2f}}{' mm' if comparison_results['has_wt_data'] else '%'}<br>"
+                "<b>Type:</b> %{customdata[2]}"
+                "<extra></extra>"
+            ),
+            customdata=np.column_stack((
+                positive_growth[old_depth_col],
+                positive_growth[new_depth_col],
+                positive_growth['defect_type']
+            ))
+        ))
+    
+    # Add negative growth defects
+    fig.add_trace(go.Scatter(
+        x=negative_growth['log_dist'],
+        y=negative_growth[growth_col],
+        mode='markers',
+        marker=dict(
+            size=12,
+            color='red',
+            opacity=0.7,
+            symbol='triangle-down',
+            line=dict(width=1, color='black')
+        ),
+        name='Negative Growth (Anomaly)',
+        hovertemplate=(
+            "<b>Location:</b> %{x:.2f}m<br>"
+            f"<b>Growth Rate:</b> %{{y:.3f}}{y_title.split(' ')[1]}<br>"
+            f"<b>Old Depth:</b> %{{customdata[0]:.2f}}{' mm' if comparison_results['has_wt_data'] else '%'}<br>"
+            f"<b>New Depth:</b> %{{customdata[1]:.2f}}{' mm' if comparison_results['has_wt_data'] else '%'}<br>"
+            "<b>Type:</b> %{customdata[2]}"
+            "<extra></extra>"
+        ),
+        customdata=np.column_stack((
+            negative_growth[old_depth_col],
+            negative_growth[new_depth_col],
+            negative_growth['defect_type']
+        ))
+    ))
+    
+    # Add zero line
+    fig.add_shape(
+        type="line",
+        x0=min(matches_df['log_dist']),
+        x1=max(matches_df['log_dist']),
+        y0=0, y1=0,
+        line=dict(color="black", width=1, dash="dash"),
+    )
+    
+    # Layout
+    fig.update_layout(
+        title='Defect Growth Rate vs Location (Highlighting Negative Growth)',
+        xaxis_title='Distance Along Pipeline (m)',
+        yaxis_title=y_title,
+        height=500,
+        hovermode='closest',
+        legend=dict(
+            yanchor="top",
+            y=0.99,
+            xanchor="right",
+            x=0.99
+        )
+    )
+    
+    return fig

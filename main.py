@@ -7,7 +7,7 @@ from datetime import datetime
 # Import functions from modules
 from data_processing import process_pipeline_data
 from utils import parse_clock
-from visualizations import create_unwrapped_pipeline_visualization, create_joint_defect_visualization
+from visualizations import create_unwrapped_pipeline_visualization, create_joint_defect_visualization, create_growth_rate_histogram, create_negative_growth_plot
 from column_mapping import (
     suggest_column_mapping, 
     apply_column_mapping, 
@@ -324,7 +324,7 @@ if st.session_state.datasets:
                 fig = create_joint_defect_visualization(defects_df, selected_joint)
                 st.plotly_chart(fig, use_container_width=True)
     
-    # Tab 2: Multi-Year Comparison
+    # Modified section for the Multi-Year Comparison tab
     with tab2:
         st.header("Multi-Year Comparison")
         
@@ -367,10 +367,6 @@ if st.session_state.datasets:
                 step=0.01,
                 help="Maximum distance between defects to consider them at the same location"
             )
-
-            with st.expander("File Preview", expanded=True):
-                st.dataframe(earlier_defects.head(10))
-                st.dataframe(later_defects.head(10))
             
             # Button to perform comparison
             if st.button("Compare Defects"):
@@ -380,11 +376,10 @@ if st.session_state.datasets:
                         comparison_results = compare_defects(
                             earlier_defects, 
                             later_defects,
-                            distance_tolerance = tolerance
+                            old_year=earlier_year,
+                            new_year=later_year,
+                            distance_tolerance=tolerance
                         )
-
-                        # Option 2: Use st.write to show it in a readable format
-                        st.write("Dictionary content:", comparison_results)
                         
                         # Display summary statistics
                         st.subheader("Comparison Summary")
@@ -405,17 +400,85 @@ if st.session_state.datasets:
                             st.metric(label="% New Defects", value=f"{comparison_results['pct_new']:.1f}%")
                         
                         # Create visualization tabs
-                        viz_tab1, viz_tab2, viz_tab3 = st.tabs(["Statistics", "Defect Types", "Location Map"])
+                        viz_tab1, viz_tab2, viz_tab3, viz_tab4 = st.tabs([
+                            "New vs Common", "New Defect Types", "Growth Rate", "Negative Growth"
+                        ])
                         
                         with viz_tab1:
                             # Pie chart of common vs new defects
                             pie_fig = create_comparison_stats_plot(comparison_results)
-                            st.plotly_chart(pie_fig, use_container_width = True)
+                            st.plotly_chart(pie_fig, use_container_width=True)
                         
                         with viz_tab2:
                             # Bar chart of new defect types
                             bar_fig = create_new_defect_types_plot(comparison_results)
-                            st.plotly_chart(bar_fig, use_container_width = True)
+                            st.plotly_chart(bar_fig, use_container_width=True)
+                        
+                        with viz_tab3:
+                            # Histogram of defect growth rates
+                            if comparison_results['has_depth_data']:
+                                # Display growth rate statistics
+                                growth_stats = comparison_results['growth_stats']
+                                
+                                stats_col1, stats_col2, stats_col3 = st.columns(3)
+                                
+                                with stats_col1:
+                                    if comparison_results['has_wt_data']:
+                                        st.metric(
+                                            label="Avg Growth Rate", 
+                                            value=f"{growth_stats['avg_positive_growth_rate_mm']:.3f} mm/yr"
+                                        )
+                                    else:
+                                        st.metric(
+                                            label="Avg Growth Rate", 
+                                            value=f"{growth_stats['avg_positive_growth_rate_pct']:.3f} %/yr"
+                                        )
+                                
+                                with stats_col2:
+                                    if comparison_results['has_wt_data']:
+                                        st.metric(
+                                            label="Max Growth Rate", 
+                                            value=f"{growth_stats['max_growth_rate_mm']:.3f} mm/yr"
+                                        )
+                                    else:
+                                        st.metric(
+                                            label="Max Growth Rate", 
+                                            value=f"{growth_stats['max_growth_rate_pct']:.3f} %/yr"
+                                        )
+                                
+                                with stats_col3:
+                                    st.metric(
+                                        label="Negative Growth Defects", 
+                                        value=f"{growth_stats['negative_growth_count']} ({growth_stats['pct_negative_growth']:.1f}%)"
+                                    )
+                                
+                                # Show histogram
+                                growth_hist_fig = create_growth_rate_histogram(comparison_results)
+                                st.plotly_chart(growth_hist_fig, use_container_width=True)
+                            else:
+                                st.info("Depth data not available in one or both datasets. Cannot calculate growth rates.")
+                        
+                        with viz_tab4:
+                            # Plot highlighting negative growth defects
+                            if comparison_results['has_depth_data']:
+                                negative_growth_fig = create_negative_growth_plot(comparison_results)
+                                st.plotly_chart(negative_growth_fig, use_container_width=True)
+                                
+                                # Add explanation
+                                st.info("""
+                                **Negative Growth Explanation**:
+                                Defects showing negative growth rates (red triangles) indicate areas where the defect 
+                                depth appears to have decreased between inspections. This is physically unlikely and 
+                                usually indicates:
+                                
+                                - Measurement errors in one or both inspections
+                                - Different inspection tools or calibration between surveys
+                                - Possible repair work that wasn't documented
+                                
+                                These areas should be flagged for verification and further investigation.
+                                """)
+                            else:
+                                st.info("Depth data not available in one or both datasets. Cannot analyze negative growth.")
                         
                         # Display tables of common and new defects in an expander
                         with st.expander("Detailed Defect Lists", expanded=False):
@@ -430,5 +493,6 @@ if st.session_state.datasets:
                     except Exception as e:
                         st.error(f"Error comparing defects: {str(e)}")
                         st.info("Make sure both datasets have the required columns and compatible data formats.")
+        
 else:
     st.info("Please upload at least one dataset using the sidebar to begin analysis.")
