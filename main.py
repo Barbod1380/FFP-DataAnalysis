@@ -364,7 +364,7 @@ if st.session_state.datasets:
                 min_value=0.001, 
                 max_value=0.1, 
                 value=0.01, 
-                step=0.01,
+                step=0.001,
                 help="Maximum distance between defects to consider them at the same location"
             )
             
