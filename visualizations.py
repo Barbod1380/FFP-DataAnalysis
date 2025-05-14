@@ -507,20 +507,28 @@ def create_growth_rate_histogram(comparison_results):
         growth_col = 'growth_rate_pct_per_year'
         x_title = 'Growth Rate (% points/year)'
     
-    # Create histogram
+    # Calculate bin parameters manually
+    min_val = np.min(positive_growth[growth_col])
+    max_val = np.max(positive_growth[growth_col])
+    num_bins = 20
+    bin_size = (max_val - min_val) / num_bins
+
+    # Create histogram with exact bin count
     fig = go.Figure()
-    
+
     fig.add_trace(go.Histogram(
         x=positive_growth[growth_col],
-        nbinsx = 25,
+        xbins=dict(
+            start=min_val,
+            end=max_val,
+            size=bin_size
+        ),
         marker=dict(
             color='rgba(255, 100, 102, 0.7)',
             line=dict(color='rgba(255, 100, 102, 1)', width=1)
         ),
-        autobinx = False,
         name='Positive Growth Rates'
     ))
-    
     # Add vertical line at average growth rate
     mean_growth = positive_growth[growth_col].mean()
     
