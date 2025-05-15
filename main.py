@@ -1,4 +1,4 @@
-# Enhanced main.py with robust encoding handling
+# main.py - Complete version with all functionality
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -7,7 +7,7 @@ from datetime import datetime
 # Import functions from modules
 from data_processing import process_pipeline_data
 from utils import parse_clock
-from visualizations import *
+from visualizations import create_unwrapped_pipeline_visualization, create_joint_defect_visualization
 from column_mapping import (
     suggest_column_mapping, 
     apply_column_mapping, 
@@ -19,6 +19,14 @@ from multi_year_analysis import (
     compare_defects, 
     create_comparison_stats_plot, 
     create_new_defect_types_plot,
+    create_defect_location_plot,
+    create_growth_rate_histogram,
+    create_negative_growth_plot
+)
+from defect_analysis import (
+    create_dimension_distribution_plots,
+    create_combined_dimensions_plot,
+    create_dimension_statistics_table
 )
 
 # Function to load CSV with multiple encoding attempts
@@ -60,7 +68,7 @@ if 'file_upload_key' not in st.session_state:
     st.session_state.file_upload_key = 0  # For forcing file uploader to clear
 
 # Page configuration
-st.set_page_config(page_title = "Pipeline Inspection Analysis", layout = "wide")
+st.set_page_config(page_title="Pipeline Inspection Analysis", layout="wide")
 
 # Application title and description
 st.title("Pipeline Inspection Multi-Year Analysis")
@@ -86,18 +94,18 @@ with st.sidebar:
         "Select Inspection Year", 
         options=year_options,
         index=len(year_options) - 1,  # Default to current year
-        key="year_selector"
+        key="year_selector_sidebar"
     )
     
     # File uploader
     uploaded_file = st.file_uploader(
         f"Upload {selected_year} Inspection CSV", 
-        type = "csv",
-        key = f"file_uploader_{st.session_state.file_upload_key}"
+        type="csv",
+        key=f"file_uploader_{st.session_state.file_upload_key}"
     )
     
     # Button to clear all data
-    if st.button("Clear All Datasets"):
+    if st.button("Clear All Datasets", key="clear_all_datasets_btn"):
         st.session_state.datasets = {}
         st.session_state.current_year = None
         st.session_state.file_upload_key += 1  # Force file uploader to reset
@@ -117,13 +125,10 @@ if uploaded_file is not None:
             st.stop()
         
         # Display file info in a collapsible section
-        with st.expander("File Preview", expanded=True): 
+        with st.expander("File Preview", expanded=True):
             st.write(f"**Filename:** {uploaded_file.name}")
             st.write(f"**Rows:** {df.shape[0]}, **Columns:** {df.shape[1]}")
-            
-            # Show first 100 rows, with a scrollable height of ~5 rows
-            st.dataframe(df.head(100), height=200)
-
+            st.dataframe(df.head(3))
         
         # Column mapping process in a collapsible section
         with st.expander("Column Mapping", expanded=True):
@@ -189,7 +194,7 @@ if uploaded_file is not None:
                         label,
                         options=all_columns,
                         index=index,
-                        key=f"map_{selected_year}_{std_col}"
+                        key=f"map_{selected_year}_{std_col}_col2"
                     )
                     confirmed_mapping[std_col] = selected
             
@@ -206,7 +211,7 @@ if uploaded_file is not None:
                         label,
                         options=all_columns,
                         index=index,
-                        key=f"map_{selected_year}_{std_col}"
+                        key=f"map_{selected_year}_{std_col}_col3"
                     )
                     confirmed_mapping[std_col] = selected
             
@@ -222,7 +227,7 @@ if uploaded_file is not None:
         # Process and add button
         process_col1, process_col2 = st.columns([1, 3])
         with process_col1:
-            process_button = st.button(f"Process {selected_year} Data")
+            process_button = st.button(f"Process {selected_year} Data", key=f"process_data_{selected_year}")
         
         if process_button:
             with st.spinner(f"Processing {selected_year} data..."):
@@ -259,7 +264,7 @@ if uploaded_file is not None:
 if st.session_state.datasets:
     tab1, tab2 = st.tabs(["Single Year Analysis", "Multi-Year Comparison"])
     
-    # Tab 1: Single Year Analysis (similar to original functionality)
+    # Tab 1: Single Year Analysis
     with tab1:
         st.header("Single Year Analysis")
         
@@ -268,7 +273,8 @@ if st.session_state.datasets:
         selected_analysis_year = st.selectbox(
             "Select Year to Analyze",
             options=years,
-            index=years.index(st.session_state.current_year) if st.session_state.current_year in years else 0
+            index=years.index(st.session_state.current_year) if st.session_state.current_year in years else 0,
+            key="year_selector_single_analysis"
         )
         
         # Get the selected dataset
@@ -329,12 +335,13 @@ if st.session_state.datasets:
             viz_type = st.radio(
                 "Select Visualization Type",
                 ["Complete Pipeline", "Joint-by-Joint"],
-                horizontal=True
+                horizontal=True,
+                key="viz_type_single_analysis"
             )
             
             if viz_type == "Complete Pipeline":
                 # Button to show visualization
-                if st.button("Show Complete Pipeline Visualization"):
+                if st.button("Show Complete Pipeline Visualization", key="show_pipeline_single_analysis"):
                     st.subheader(f"Pipeline Defect Map ({selected_analysis_year})")
                     fig = create_unwrapped_pipeline_visualization(defects_df, joints_df)
                     st.plotly_chart(fig, use_container_width=True)
@@ -351,70 +358,19 @@ if st.session_state.datasets:
                 
                 selected_joint_label = st.selectbox(
                     "Select Joint to Visualize",
-                    options=list(joint_options.keys())
+                    options=list(joint_options.keys()),
+                    key="joint_selector_single_analysis"
                 )
                 
                 selected_joint = joint_options[selected_joint_label]
                 
                 # Button to show joint visualization
-                if st.button("Show Joint Visualization"):
+                if st.button("Show Joint Visualization", key="show_joint_single_analysis"):
                     st.subheader(f"Defect Map for {selected_joint_label} ({selected_analysis_year})")
                     fig = create_joint_defect_visualization(defects_df, selected_joint)
                     st.plotly_chart(fig, use_container_width=True)
-        
-        # Display data preview
-        with st.expander("Data Preview", expanded=False):
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.subheader(f"{selected_analysis_year} Joints (Top 5 Records)")
-                st.dataframe(joints_df.head(5))
-            
-            with col2:
-                st.subheader(f"{selected_analysis_year} Defects (Top 5 Records)")
-                st.dataframe(defects_df.head(5))
-        
-        # Visualization section
-        st.subheader("Visualization")
-        
-        # Visualization type selection
-        viz_type = st.radio(
-            "Select Visualization Type",
-            ["Complete Pipeline", "Joint-by-Joint"],
-            horizontal=True
-        )
-        
-        if viz_type == "Complete Pipeline":
-            # Button to show visualization
-            if st.button("Show Complete Pipeline Visualization"):
-                st.subheader(f"Pipeline Defect Map ({selected_analysis_year})")
-                fig = create_unwrapped_pipeline_visualization(defects_df, joints_df)
-                st.plotly_chart(fig, use_container_width=True)
-        else:
-            # Joint selection
-            available_joints = sorted(joints_df["joint number"].unique())
-            
-            # Format joint numbers with distance
-            joint_options = {}
-            for joint in available_joints:
-                joint_row = joints_df[joints_df["joint number"] == joint].iloc[0]
-                distance = joint_row["log dist. [m]"]
-                joint_options[f"Joint {joint} (at {distance:.1f}m)"] = joint
-            
-            selected_joint_label = st.selectbox(
-                "Select Joint to Visualize",
-                options=list(joint_options.keys())
-            )
-            
-            selected_joint = joint_options[selected_joint_label]
-            
-            # Button to show joint visualization
-            if st.button("Show Joint Visualization"):
-                st.subheader(f"Defect Map for {selected_joint_label} ({selected_analysis_year})")
-                fig = create_joint_defect_visualization(defects_df, selected_joint)
-                st.plotly_chart(fig, use_container_width=True)
     
-    # Modified section for the Multi-Year Comparison tab
+    # Tab 2: Multi-Year Comparison
     with tab2:
         st.header("Multi-Year Comparison")
         
@@ -431,7 +387,7 @@ if st.session_state.datasets:
                     "Select Earlier Year", 
                     options=available_years[:-1],  # All but the last year
                     index=0,
-                    key="earlier_year"
+                    key="earlier_year_comparison"
                 )
             
             with col2:
@@ -441,7 +397,7 @@ if st.session_state.datasets:
                     "Select Later Year", 
                     options=later_years,
                     index=0,
-                    key="later_year"
+                    key="later_year_comparison"
                 )
             
             # Get the datasets
@@ -451,19 +407,19 @@ if st.session_state.datasets:
             # Distance tolerance for matching defects
             tolerance = st.slider(
                 "Distance Tolerance (m)", 
-                min_value=0.001, 
-                max_value=0.1, 
-                value=0.001, 
-                step=0.001,
-                format="%.3f",
-                help="Maximum distance between defects to consider them at the same location"
+                min_value=0.01, 
+                max_value=0.5, 
+                value=0.1, 
+                step=0.01,
+                help="Maximum distance between defects to consider them at the same location",
+                key="distance_tolerance_slider"
             )
             
             # Button to perform comparison
-            if st.button("Compare Defects"):
+            if st.button("Compare Defects", key="compare_defects_button"):
                 with st.spinner(f"Comparing defects between {earlier_year} and {later_year}..."):
                     try:
-                        # Perform the comparison with year values for growth rate calculation
+                        # Perform the comparison
                         comparison_results = compare_defects(
                             earlier_defects, 
                             later_defects,
@@ -471,6 +427,7 @@ if st.session_state.datasets:
                             new_year=int(later_year),
                             distance_tolerance=tolerance
                         )
+                        
                         # Display summary statistics
                         st.subheader("Comparison Summary")
                         
@@ -506,14 +463,14 @@ if st.session_state.datasets:
                         
                         with viz_tab3:
                             # Histogram of defect growth rates
-                            if comparison_results['has_depth_data']:
+                            if comparison_results.get('has_depth_data', False) and comparison_results.get('calculate_growth', False):
                                 # Display growth rate statistics
                                 growth_stats = comparison_results['growth_stats']
                                 
                                 stats_col1, stats_col2, stats_col3 = st.columns(3)
                                 
                                 with stats_col1:
-                                    if comparison_results['has_wt_data']:
+                                    if comparison_results.get('has_wt_data', False):
                                         st.metric(
                                             label="Avg Growth Rate", 
                                             value=f"{growth_stats['avg_positive_growth_rate_mm']:.3f} mm/yr"
@@ -525,7 +482,7 @@ if st.session_state.datasets:
                                         )
                                 
                                 with stats_col2:
-                                    if comparison_results['has_wt_data']:
+                                    if comparison_results.get('has_wt_data', False):
                                         st.metric(
                                             label="Max Growth Rate", 
                                             value=f"{growth_stats['max_growth_rate_mm']:.3f} mm/yr"
@@ -546,11 +503,11 @@ if st.session_state.datasets:
                                 growth_hist_fig = create_growth_rate_histogram(comparison_results)
                                 st.plotly_chart(growth_hist_fig, use_container_width=True)
                             else:
-                                st.info("Depth data not available in one or both datasets. Cannot calculate growth rates.")
+                                st.info("Growth rate analysis not available. Requires depth data in both datasets and valid year values.")
                         
                         with viz_tab4:
                             # Plot highlighting negative growth defects
-                            if comparison_results['has_depth_data']:
+                            if comparison_results.get('has_depth_data', False) and comparison_results.get('calculate_growth', False):
                                 negative_growth_fig = create_negative_growth_plot(comparison_results)
                                 st.plotly_chart(negative_growth_fig, use_container_width=True)
                                 
@@ -568,7 +525,7 @@ if st.session_state.datasets:
                                 These areas should be flagged for verification and further investigation.
                                 """)
                             else:
-                                st.info("Depth data not available in one or both datasets. Cannot analyze negative growth.")
+                                st.info("Negative growth analysis not available. Requires depth data in both datasets and valid year values.")
                         
                         # Display tables of common and new defects in an expander
                         with st.expander("Detailed Defect Lists", expanded=False):
@@ -583,6 +540,5 @@ if st.session_state.datasets:
                     except Exception as e:
                         st.error(f"Error comparing defects: {str(e)}")
                         st.info("Make sure both datasets have the required columns and compatible data formats.")
-        
 else:
     st.info("Please upload at least one dataset using the sidebar to begin analysis.")
