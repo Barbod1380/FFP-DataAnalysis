@@ -748,7 +748,7 @@ def create_matching_debug_view(old_defects_df, new_defects_df, distance_toleranc
     for _, new_defect in new_defects_df.iterrows():
         # Find old defects of the same type within tolerance
         nearby_old = old_defects_df[
-            (old_defects_df['component / anomaly identification'] == new_defect['component / anomaly identification']) &
+            #(old_defects_df['component / anomaly identification'] == new_defect['component / anomaly identification']) &
             (abs(old_defects_df['log dist. [m]'] - new_defect['log dist. [m]']) <= distance_tolerance * 2)  # Using 2x tolerance for this view
         ]
         
