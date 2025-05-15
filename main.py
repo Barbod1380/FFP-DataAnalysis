@@ -343,6 +343,8 @@ if st.session_state.datasets:
                 # Button to show visualization
                 if st.button("Show Complete Pipeline Visualization", key="show_pipeline_single_analysis"):
                     st.subheader(f"Pipeline Defect Map ({selected_analysis_year})")
+                    st.dataframe(defects_df.head(5))
+                    st.dataframe(joints_df.head(5))
                     fig = create_unwrapped_pipeline_visualization(defects_df, joints_df)
                     st.plotly_chart(fig, use_container_width=True)
             else:
