@@ -49,9 +49,8 @@ def compare_defects(old_defects_df, new_defects_df, old_year=None, new_year=None
     for _, new_defect in new_df.iterrows():
         # Filter same‐type, within tolerance, not yet matched
         mask = (
-            (old_df['component / anomaly identification']
-              == new_defect['component / anomaly identification'])
-            & (~old_df['defect_id'].isin(matched_old))
+            #(old_df['component / anomaly identification']== new_defect['component / anomaly identification']) & 
+            (~old_df['defect_id'].isin(matched_old))
             & (old_df['log dist. [m]']
                .sub(new_defect['log dist. [m]'])
                .abs() <= distance_tolerance)
