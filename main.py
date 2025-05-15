@@ -379,8 +379,6 @@ if st.session_state.datasets:
                 # Button to show visualization
                 if st.button("Show Complete Pipeline Visualization", key="show_pipeline_single_analysis"):
                     st.subheader(f"Pipeline Defect Map ({selected_analysis_year})")
-                    st.dataframe(defects_df.head(5))
-                    st.dataframe(joints_df.head(5))
                     fig = create_unwrapped_pipeline_visualization(defects_df, joints_df)
                     st.plotly_chart(fig, use_container_width=True)
             else:
@@ -445,10 +443,11 @@ if st.session_state.datasets:
             # Distance tolerance for matching defects
             tolerance = st.slider(
                 "Distance Tolerance (m)", 
-                min_value=0.01, 
-                max_value=0.5, 
-                value=0.1, 
-                step=0.01,
+                min_value=0.001, 
+                max_value=0.1, 
+                value=0.01, 
+                step=0.001,
+                format="%.3f",
                 help="Maximum distance between defects to consider them at the same location",
                 key="distance_tolerance_slider"
             )
