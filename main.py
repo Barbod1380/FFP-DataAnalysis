@@ -7,7 +7,7 @@ from datetime import datetime
 # Import functions from modules
 from data_processing import process_pipeline_data
 from utils import parse_clock
-from visualizations import create_unwrapped_pipeline_visualization, create_joint_defect_visualization, create_growth_rate_histogram, create_negative_growth_plot
+from visualizations import *
 from column_mapping import (
     suggest_column_mapping, 
     apply_column_mapping, 
@@ -60,7 +60,7 @@ if 'file_upload_key' not in st.session_state:
     st.session_state.file_upload_key = 0  # For forcing file uploader to clear
 
 # Page configuration
-st.set_page_config(page_title="Pipeline Inspection Analysis", layout="wide")
+st.set_page_config(page_title = "Pipeline Inspection Analysis", layout = "wide")
 
 # Application title and description
 st.title("Pipeline Inspection Multi-Year Analysis")
@@ -92,8 +92,8 @@ with st.sidebar:
     # File uploader
     uploaded_file = st.file_uploader(
         f"Upload {selected_year} Inspection CSV", 
-        type="csv",
-        key=f"file_uploader_{st.session_state.file_upload_key}"
+        type = "csv",
+        key = f"file_uploader_{st.session_state.file_upload_key}"
     )
     
     # Button to clear all data
@@ -117,10 +117,13 @@ if uploaded_file is not None:
             st.stop()
         
         # Display file info in a collapsible section
-        with st.expander("File Preview", expanded=True):
+        with st.expander("File Preview", expanded=True): 
             st.write(f"**Filename:** {uploaded_file.name}")
             st.write(f"**Rows:** {df.shape[0]}, **Columns:** {df.shape[1]}")
-            st.dataframe(df.head(3))
+            
+            # Show first 100 rows, with a scrollable height of ~5 rows
+            st.dataframe(df.head(100), height=200)
+
         
         # Column mapping process in a collapsible section
         with st.expander("Column Mapping", expanded=True):
@@ -271,6 +274,93 @@ if st.session_state.datasets:
         # Get the selected dataset
         joints_df = st.session_state.datasets[selected_analysis_year]['joints_df']
         defects_df = st.session_state.datasets[selected_analysis_year]['defects_df']
+        
+        # Create tabs for different analysis types
+        analysis_tabs = st.tabs(["Data Preview", "Defect Dimensions", "Visualizations"])
+        
+        # Tab 1: Data Preview
+        with analysis_tabs[0]:
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.subheader(f"{selected_analysis_year} Joints (Top 5 Records)")
+                st.dataframe(joints_df.head(5))
+            
+            with col2:
+                st.subheader(f"{selected_analysis_year} Defects (Top 5 Records)")
+                st.dataframe(defects_df.head(5))
+        
+        # Tab 2: Defect Dimensions Analysis
+        with analysis_tabs[1]:
+            st.subheader("Defect Dimension Analysis")
+            
+            # Display dimension statistics table
+            st.write("#### Dimension Statistics")
+            stats_df = create_dimension_statistics_table(defects_df)
+            if not stats_df.empty:
+                st.dataframe(stats_df)
+            else:
+                st.info("No dimension data available for analysis.")
+            
+            # Create distribution plots
+            dimension_figs = create_dimension_distribution_plots(defects_df)
+            
+            if dimension_figs:
+                # Create columns for the plots
+                cols = st.columns(min(len(dimension_figs), 3))
+                
+                # Display each dimension distribution
+                for i, (col_name, fig) in enumerate(dimension_figs.items()):
+                    with cols[i % len(cols)]:
+                        st.plotly_chart(fig, use_container_width=True)
+                
+                # Display combined dimensions plot
+                st.write("#### Defect Dimensions Relationship")
+                combined_fig = create_combined_dimensions_plot(defects_df)
+                st.plotly_chart(combined_fig, use_container_width=True)
+            else:
+                st.info("No dimension data available for plotting distributions.")
+        
+        # Tab 3: Pipeline Visualizations
+        with analysis_tabs[2]:
+            st.subheader("Pipeline Visualization")
+            
+            # Visualization type selection
+            viz_type = st.radio(
+                "Select Visualization Type",
+                ["Complete Pipeline", "Joint-by-Joint"],
+                horizontal=True
+            )
+            
+            if viz_type == "Complete Pipeline":
+                # Button to show visualization
+                if st.button("Show Complete Pipeline Visualization"):
+                    st.subheader(f"Pipeline Defect Map ({selected_analysis_year})")
+                    fig = create_unwrapped_pipeline_visualization(defects_df, joints_df)
+                    st.plotly_chart(fig, use_container_width=True)
+            else:
+                # Joint selection
+                available_joints = sorted(joints_df["joint number"].unique())
+                
+                # Format joint numbers with distance
+                joint_options = {}
+                for joint in available_joints:
+                    joint_row = joints_df[joints_df["joint number"] == joint].iloc[0]
+                    distance = joint_row["log dist. [m]"]
+                    joint_options[f"Joint {joint} (at {distance:.1f}m)"] = joint
+                
+                selected_joint_label = st.selectbox(
+                    "Select Joint to Visualize",
+                    options=list(joint_options.keys())
+                )
+                
+                selected_joint = joint_options[selected_joint_label]
+                
+                # Button to show joint visualization
+                if st.button("Show Joint Visualization"):
+                    st.subheader(f"Defect Map for {selected_joint_label} ({selected_analysis_year})")
+                    fig = create_joint_defect_visualization(defects_df, selected_joint)
+                    st.plotly_chart(fig, use_container_width=True)
         
         # Display data preview
         with st.expander("Data Preview", expanded=False):
