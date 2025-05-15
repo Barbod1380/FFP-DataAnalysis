@@ -128,7 +128,7 @@ if uploaded_file is not None:
         with st.expander("File Preview", expanded=True):
             st.write(f"**Filename:** {uploaded_file.name}")
             st.write(f"**Rows:** {df.shape[0]}, **Columns:** {df.shape[1]}")
-            st.dataframe(df.head(3))
+            st.dataframe(df.head(100), height = 200)
         
         # Column mapping process in a collapsible section
         with st.expander("Column Mapping", expanded=True):
