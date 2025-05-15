@@ -1,12 +1,13 @@
 # main.py - Complete version with all functionality
 import streamlit as st
 import pandas as pd
+import re
 import numpy as np
 from datetime import datetime
 
 # Import functions from modules
 from data_processing import process_pipeline_data
-from utils import parse_clock
+from utils import *
 from visualizations import create_unwrapped_pipeline_visualization, create_joint_defect_visualization
 from column_mapping import (
     suggest_column_mapping, 
@@ -51,6 +52,24 @@ def load_csv_with_encoding(file):
                 on_bad_lines='warn'  # Continue despite bad lines
             )
             
+            # Check and convert clock column if needed
+            if 'clock' in df.columns:
+                # Check if any values are numeric (floating point)
+                if df['clock'].dtype.kind in 'fi' or any(isinstance(x, (int, float)) for x in df['clock'].dropna()):
+                    st.info("Converting numeric clock values to HH:MM format")
+                    # Convert numeric values to clock format
+                    df['clock'] = df['clock'].apply(
+                        lambda x: float_to_clock(float(x)) if pd.notna(x) and isinstance(x, (int, float)) else x
+                    )
+                
+                # For string values that don't look like clock format (HH:MM)
+                clock_pattern = re.compile(r'^\d{1,2}:\d{2}$')
+                non_standard = df['clock'].apply(
+                    lambda x: pd.notna(x) and isinstance(x, str) and not clock_pattern.match(x)
+                ).any()
+                
+                if non_standard:
+                    st.warning("Some clock values may not be in standard HH:MM format")
             return df, encoding
             
         except Exception as e:
@@ -239,6 +258,23 @@ if uploaded_file is not None:
                 
                 # Process clock and area data
                 if 'clock' in defects_df.columns:
+                    # First ensure all clock values are in string format
+                    defects_df['clock'] = defects_df['clock'].astype(str)
+                    
+                    # Check if string values don't match the expected format
+                    clock_pattern = re.compile(r'^\d{1,2}:\d{2}$')
+                    non_standard = defects_df['clock'].apply(
+                        lambda x: pd.notna(x) and not clock_pattern.match(x) and x != 'nan'
+                    ).any()
+                    
+                    if non_standard:
+                        st.warning("Some clock values may not be in standard HH:MM format. These will be handled as NaN.")
+                        # Try to fix non-standard formats
+                        defects_df['clock'] = defects_df['clock'].apply(
+                            lambda x: float_to_clock(float(x)) if pd.notna(x) and x != 'nan' and not clock_pattern.match(x) else x
+                        )
+                    
+                    # Now convert to float for visualization
                     defects_df["clock_float"] = defects_df["clock"].apply(parse_clock)
                 
                 if 'length [mm]' in defects_df.columns and 'width [mm]' in defects_df.columns:
