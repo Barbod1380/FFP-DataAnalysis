@@ -8,7 +8,7 @@ from datetime import datetime
 # Import functions from modules
 from data_processing import process_pipeline_data
 from utils import *
-from visualizations import create_unwrapped_pipeline_visualization, create_joint_defect_visualization
+from visualizations import *
 from column_mapping import (
     suggest_column_mapping, 
     apply_column_mapping, 
@@ -24,11 +24,8 @@ from multi_year_analysis import (
     create_growth_rate_histogram,
     create_negative_growth_plot
 )
-from defect_analysis import (
-    create_dimension_distribution_plots,
-    create_combined_dimensions_plot,
-    create_dimension_statistics_table
-)
+from defect_analysis import *
+
 
 # Function to load CSV with multiple encoding attempts
 def load_csv_with_encoding(file):
@@ -242,16 +239,35 @@ if uploaded_file is not None:
             if missing_cols:
                 st.warning(f"Missing required columns: {', '.join(missing_cols)}")
                 st.info("You may proceed, but functionality may be limited.")
-        
+
+        # Add this after the column mapping expander
+        with st.expander("Pipeline Specifications", expanded=True):
+            st.subheader("Enter Pipeline Parameters")
+            
+            # Pipe diameter input with a reasonable default and validation
+            pipe_diameter = st.number_input(
+                "Pipe Diameter (m)",
+                min_value=0.1,
+                max_value=3.0,  # Reasonable range for pipeline diameters
+                value=1.0,  # Default value
+                step=0.1,
+                format="%.2f",
+                help="Enter the pipeline diameter in meters"
+            )
+
         # Process and add button
         process_col1, process_col2 = st.columns([1, 3])
         with process_col1:
             process_button = st.button(f"Process {selected_year} Data", key=f"process_data_{selected_year}")
+
         
         if process_button:
             with st.spinner(f"Processing {selected_year} data..."):
                 # Apply the mapping to rename columns
                 standardized_df = apply_column_mapping(df, confirmed_mapping)
+
+                if 'surface location' in standardized_df.columns:
+                    standardized_df['surface location'] = standardized_df['surface location'].apply(standardize_surface_location)
                 
                 # Process the pipeline data
                 joints_df, defects_df = process_pipeline_data(standardized_df)
@@ -282,11 +298,13 @@ if uploaded_file is not None:
                 
                 if 'joint number' in defects_df.columns:
                     defects_df["joint number"] = defects_df["joint number"].astype("Int64")
-                
+
+                        
                 # Store in session state
                 st.session_state.datasets[selected_year] = {
                     'joints_df': joints_df,
-                    'defects_df': defects_df
+                    'defects_df': defects_df,
+                    'pipe_diameter': pipe_diameter  # Store the pipe diameter
                 }
                 st.session_state.current_year = selected_year
                 
@@ -381,6 +399,7 @@ if st.session_state.datasets:
                     st.subheader(f"Pipeline Defect Map ({selected_analysis_year})")
                     fig = create_unwrapped_pipeline_visualization(defects_df, joints_df)
                     st.plotly_chart(fig, use_container_width=True)
+
             else:
                 # Joint selection
                 available_joints = sorted(joints_df["joint number"].unique())
@@ -392,20 +411,69 @@ if st.session_state.datasets:
                     distance = joint_row["log dist. [m]"]
                     joint_options[f"Joint {joint} (at {distance:.1f}m)"] = joint
                 
-                selected_joint_label = st.selectbox(
-                    "Select Joint to Visualize",
-                    options=list(joint_options.keys()),
-                    key="joint_selector_single_analysis"
-                )
+                joint_col1, joint_col2 = st.columns([3, 1])
+
+                with joint_col1:
+                    selected_joint_label = st.selectbox(
+                        "Select Joint to Visualize",
+                        options=list(joint_options.keys()),
+                        key="joint_selector_single_analysis"  # Unique key
+                    )
+
+                with joint_col2:
+                    view_mode = st.radio(
+                        "View Mode",
+                        "2D Unwrapped",
+                        key="joint_view_mode"  # Unique key
+                    )
                 
                 selected_joint = joint_options[selected_joint_label]
-                
+
                 # Button to show joint visualization
-                if st.button("Show Joint Visualization", key="show_joint_single_analysis"):
+                if st.button("Show Joint Visualization", key="show_joint_single_analysis"):  # Unique key
                     st.subheader(f"Defect Map for {selected_joint_label} ({selected_analysis_year})")
-                    fig = create_joint_defect_visualization(defects_df, selected_joint)
-                    st.plotly_chart(fig, use_container_width=True)
-    
+                    
+                    # Get joint summary
+                    from defect_analysis import create_joint_summary
+                    joint_summary = create_joint_summary(defects_df, joints_df, selected_joint)
+                    
+                    # Create summary panel with metrics
+                    summary_col1, summary_col2, summary_col3, summary_col4 = st.columns(4)
+                    
+                    with summary_col1:
+                        st.metric("Defect Count", joint_summary["defect_count"])
+                    
+                    with summary_col2:
+                        # Format defect types as a string
+                        if joint_summary["defect_types"]:
+                            defect_types_str = ", ".join([f"{count} {type_}" for type_, count in joint_summary["defect_types"].items()])
+                            if len(defect_types_str) < 30:
+                                st.metric("Defect Types", defect_types_str)
+                            else:
+                                st.metric("Defect Types", f"{len(joint_summary['defect_types'])} types")
+                                st.write(defect_types_str)
+                        else:
+                            st.metric("Defect Types", "None")
+                    
+                    with summary_col3:
+                        length_value = joint_summary["joint_length"]
+                        if length_value != "N/A":
+                            length_value = f"{length_value:.2f}m"
+                        st.metric("Joint Length", length_value)
+                    
+                    with summary_col4:
+                        st.metric("Severity Rank", joint_summary["severity_rank"])
+                    
+                    # Add a divider for clarity
+                    st.markdown("---")
+                    
+                    # Show the visualization
+                    if view_mode == "2D Unwrapped":
+                        # Show the original unwrapped visualization
+                        fig = create_joint_defect_visualization(defects_df, selected_joint)
+
+                    st.plotly_chart(fig, use_container_width=True)                
+
     # Tab 2: Multi-Year Comparison
     with tab2:
         st.header("Multi-Year Comparison")

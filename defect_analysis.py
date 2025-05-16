@@ -41,16 +41,6 @@ def create_dimension_distribution_plots(defects_df, dimension_columns=None):
                     color_discrete_sequence=['rgba(0, 128, 255, 0.6)']
                 )
                 
-                # Add mean line
-                mean_val = valid_data[col].mean()
-                fig.add_vline(
-                    x=mean_val,
-                    line_dash="dash",
-                    line_color="red",
-                    annotation_text=f"Mean: {mean_val:.2f}",
-                    annotation_position="top right"
-                )
-                
                 # Format
                 fig.update_layout(
                     xaxis_title=title,
@@ -60,7 +50,6 @@ def create_dimension_distribution_plots(defects_df, dimension_columns=None):
                 )
                 
                 figures[col] = fig
-    
     return figures
 
 def create_combined_dimensions_plot(defects_df):
@@ -190,3 +179,84 @@ def create_dimension_statistics_table(defects_df):
         stats.append(stat)
     
     return pd.DataFrame(stats)
+
+
+def create_joint_summary(defects_df, joints_df, selected_joint):
+    """
+    Create a summary of a selected joint with defect count, types, length, and severity ranking.
+    
+    Parameters:
+    - defects_df: DataFrame containing defect information
+    - joints_df: DataFrame containing joint information
+    - selected_joint: The joint number to analyze
+    
+    Returns:
+    - dict: Dictionary with summary information
+    """
+    # Get joint data
+    joint_data = joints_df[joints_df["joint number"] == selected_joint]
+    
+    # Check if joint exists
+    if joint_data.empty:
+        return {
+            "defect_count": 0,
+            "defect_types": {},
+            "joint_length": "N/A",
+            "joint_position": "N/A",
+            "severity_rank": "N/A"
+        }
+    
+    joint_length = joint_data.iloc[0]["joint length [m]"]
+    joint_position = joint_data.iloc[0]["log dist. [m]"]
+    
+    # Get defects for this joint
+    joint_defects = defects_df[defects_df["joint number"] == selected_joint]
+    defect_count = len(joint_defects)
+    
+    # Get defect types
+    defect_types = {}
+    if defect_count > 0 and "component / anomaly identification" in joint_defects.columns:
+        defect_types = joint_defects["component / anomaly identification"].value_counts().to_dict()
+    
+    # Calculate severity metrics for all joints to get ranking
+    all_joints = defects_df["joint number"].unique()
+    joint_severity = []
+    
+    for joint in all_joints:
+        joint_def = defects_df[defects_df["joint number"] == joint]
+        
+        # Use maximum depth as severity metric if available
+        if "depth [%]" in joint_def.columns and not joint_def["depth [%]"].empty:
+            max_depth = joint_def["depth [%]"].max()
+        else:
+            # Fallback to defect count if depth not available
+            max_depth = len(joint_def)
+            
+        joint_severity.append({"joint": joint, "severity": max_depth})
+    
+    # Create DataFrame and sort by severity descending
+    severity_df = pd.DataFrame(joint_severity)
+    
+    # Handle ranking
+    if not severity_df.empty:
+        severity_df = severity_df.sort_values("severity", ascending=False)
+        severity_df["rank"] = range(1, len(severity_df) + 1)
+        
+        # Get rank of selected joint - safely
+        joint_rank_rows = severity_df[severity_df["joint"] == selected_joint]
+        if not joint_rank_rows.empty:
+            joint_rank = joint_rank_rows["rank"].iloc[0]
+            rank_text = f"{int(joint_rank)} of {len(all_joints)}"
+        else:
+            # Joint has no defects, so it's not in the severity dataframe
+            rank_text = f"N/A (no defects)"
+    else:
+        rank_text = "N/A"
+    
+    return {
+        "defect_count": defect_count,
+        "defect_types": defect_types,
+        "joint_length": joint_length,
+        "joint_position": joint_position,
+        "severity_rank": rank_text
+    }

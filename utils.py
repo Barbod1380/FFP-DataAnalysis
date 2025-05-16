@@ -47,3 +47,29 @@ def decimal_to_clock_str(decimal_hours):
     minutes = int((decimal_hours - hours) * 60)
     
     return f"{hours}:{minutes:02d}"
+
+
+def standardize_surface_location(value):
+    """
+    Standardize different surface location values to INT/NON-INT format.
+    
+    Parameters:
+    - value: The original surface location value
+    
+    Returns:
+    - Standardized value: either "INT" or "NON-INT"
+    """
+    if pd.isna(value) or value is None:
+        return None
+    
+    # Convert to uppercase string for consistent comparison
+    value_str = str(value).strip().upper()
+    
+    # Map different formats to standard values
+    if value_str in ['INT', 'I', 'INTERNAL', 'YES', 'INTERNE']:
+        return 'INT'
+    elif value_str in ['NON-INT', 'E', 'EXTERNAL', 'NO', 'NON INT', 'EXTERNE']:
+        return 'NON-INT'
+    else:
+        # For unknown values, return as is
+        return value

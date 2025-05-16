@@ -75,5 +75,10 @@ def process_pipeline_data(df):
     # Select only available columns
     defects_df = defects_df[available_columns]
     defects_df = defects_df.reset_index().drop(columns = ['index'])
+
+    # NEW CODE: Standardize surface location if the column exists
+    from utils import standardize_surface_location
+    if 'surface location' in defects_df.columns:
+        defects_df['surface location'] = defects_df['surface location'].apply(standardize_surface_location)
     
     return joints_df, defects_df
