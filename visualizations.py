@@ -82,15 +82,6 @@ def create_unwrapped_pipeline_visualization(defects_df, joints_df, pipe_diameter
     for _, row in joints_df.iterrows():
         x0 = row["log dist. [m]"]
         joint_num = row["joint number"]
-        
-        # Add light vertical line for joint boundary
-        fig.add_shape(
-            type="line",
-            x0=x0, x1=x0,
-            y0=0.5, y1=12.5,
-            line=dict(color="rgba(180, 180, 180, 0.5)", width=1),
-            layer="below"
-        )
     
     # Add a simplified clock position grid (fewer lines)
     for hour in [3, 6, 9, 12]:
