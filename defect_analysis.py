@@ -157,8 +157,8 @@ def create_combined_dimensions_plot(defects_df):
     
     fig.add_annotation(
         text=legend_text,
-        x=0.5,
-        y=-0.15,
+        x=-0.0,
+        y=-0.25,
         xref="paper",
         yref="paper",
         showarrow=False,
