@@ -132,14 +132,61 @@ def create_combined_dimensions_plot(defects_df):
             }
         )
     
-    # Format
+    # Format with explicit axis titles and explanations
+    use_log_x = valid_data['length [mm]'].max() / valid_data['length [mm]'].min() > 100
+    use_log_y = valid_data['width [mm]'].max() / valid_data['width [mm]'].min() > 100
+    
     fig.update_layout(
         height=500,
-        xaxis=dict(type='log') if valid_data['length [mm]'].max() / valid_data['length [mm]'].min() > 100 else None,
-        yaxis=dict(type='log') if valid_data['width [mm]'].max() / valid_data['width [mm]'].min() > 100 else None
+        xaxis=dict(
+            title="Defect Length (mm)",
+            titlefont=dict(size=14),
+            type='log' if use_log_x else None
+        ),
+        yaxis=dict(
+            title="Defect Width (mm)", 
+            titlefont=dict(size=14),
+            type='log' if use_log_y else None
+        )
     )
     
+    # Add explanation for bubble size and color
+    legend_text = "Bubble size represents defect area (mm²)"
+    if has_depth:
+        legend_text += ", color represents depth (%)"
+    
+    fig.add_annotation(
+        text=legend_text,
+        x=0.5,
+        y=-0.15,
+        xref="paper",
+        yref="paper",
+        showarrow=False,
+        font=dict(size=12)
+    )
+    
+    # Add explanation for log scale if used
+    if use_log_x or use_log_y:
+        scale_text = "Using logarithmic scale for "
+        if use_log_x and use_log_y:
+            scale_text += "both axes"
+        elif use_log_x:
+            scale_text += "length axis"
+        else:
+            scale_text += "width axis"
+        
+        fig.add_annotation(
+            text=scale_text,
+            x=0.5,
+            y=-0.2,
+            xref="paper",
+            yref="paper",
+            showarrow=False,
+            font=dict(size=12, color="gray")
+        )
+    
     return fig
+
 
 def create_dimension_statistics_table(defects_df):
     """

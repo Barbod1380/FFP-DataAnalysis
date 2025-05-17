@@ -7,7 +7,7 @@ from plotly.subplots import make_subplots
 
 def compare_defects(old_defects_df, new_defects_df, old_year=None, new_year=None, distance_tolerance=0.1):
     """
-    Compare defects between two inspection years to identify common and new defects.
+    Compare defects between two inspection years with optimized algorithm.
     
     Parameters:
     - old_defects_df: DataFrame with defects from the earlier inspection
@@ -33,45 +33,65 @@ def compare_defects(old_defects_df, new_defects_df, old_year=None, new_year=None
     has_depth_data = ('depth [%]' in old_df.columns and 'depth [%]' in new_df.columns)
     has_wt_data = ('wt nom [mm]' in old_df.columns and 'wt nom [mm]' in new_df.columns)
     
-    # Check columns
-    for col in ['log dist. [m]', 'component / anomaly identification']:
+    # Check required columns
+    for col in ['log dist. [m]']:
         if col not in old_df.columns or col not in new_df.columns:
             raise ValueError(f"Missing column: {col}")
+    
+    # Sort both dataframes by distance for faster matching
+    old_df = old_df.sort_values('log dist. [m]').reset_index(drop=True)
+    new_df = new_df.sort_values('log dist. [m]').reset_index(drop=True)
     
     # Assign IDs
     old_df['defect_id'] = range(len(old_df))
     new_df['defect_id'] = range(len(new_df))
     
-    matched_old = set()
-    matched_new = set()
     matches = []
+    matched_old_indices = set()
+    matched_new_indices = set()
     
-    for _, new_defect in new_df.iterrows():
-        # Filter same‐type, within tolerance, not yet matched
-        mask = (
-            #(old_df['component / anomaly identification']== new_defect['component / anomaly identification']) & 
-            (~old_df['defect_id'].isin(matched_old))
-            & (old_df['log dist. [m]']
-               .sub(new_defect['log dist. [m]'])
-               .abs() <= distance_tolerance)
-        )
-        potential_matches = old_df[mask]
+    # Optimized matching algorithm using the sorted property
+    old_index = 0
+    old_max = len(old_df)
+    
+    for new_idx, new_defect in new_df.iterrows():
+        new_dist = new_defect['log dist. [m]']
         
-        if not potential_matches.empty:
-            # Find the index label of the minimal distance
-            dists = (potential_matches['log dist. [m]']
-                     - new_defect['log dist. [m]']).abs()
-            best_idx = dists.idxmin()
-            closest_match = potential_matches.loc[best_idx]
+        # Set the search window based on tolerance
+        # Find the starting point in old_df where distance is within tolerance
+        while old_index < old_max and old_df.loc[old_index, 'log dist. [m]'] < new_dist - distance_tolerance:
+            old_index += 1
+        
+        # Check all old defects within tolerance window
+        temp_old_index = old_index
+        potential_matches = []
+        
+        # Only look at defects within the tolerance window
+        while temp_old_index < old_max and old_df.loc[temp_old_index, 'log dist. [m]'] <= new_dist + distance_tolerance:
+            # Skip if already matched
+            if temp_old_index not in matched_old_indices:
+                old_defect = old_df.loc[temp_old_index]
+                dist_diff = abs(old_defect['log dist. [m]'] - new_dist)
+                
+                if dist_diff <= distance_tolerance:
+                    potential_matches.append((temp_old_index, dist_diff))
+            
+            temp_old_index += 1
+        
+        # Find the closest match
+        if potential_matches:
+            potential_matches.sort(key=lambda x: x[1])  # Sort by distance difference
+            best_old_idx, distance_diff = potential_matches[0]
+            closest_match = old_df.loc[best_old_idx]
             
             # Basic match data
             match_data = {
                 'new_defect_id': new_defect['defect_id'],
                 'old_defect_id': closest_match['defect_id'],
-                'distance_diff': dists.loc[best_idx],
+                'distance_diff': distance_diff,
                 'log_dist': new_defect['log dist. [m]'],
                 'old_log_dist': closest_match['log dist. [m]'],
-                'defect_type': new_defect['component / anomaly identification']
+                'defect_type': new_defect['component / anomaly identification'] if 'component / anomaly identification' in new_defect else 'Unknown'
             }
             
             # Add growth data if available
@@ -107,8 +127,8 @@ def compare_defects(old_defects_df, new_defects_df, old_year=None, new_year=None
                     })
             
             matches.append(match_data)
-            matched_old.add(closest_match['defect_id'])
-            matched_new.add(new_defect['defect_id'])
+            matched_old_indices.add(best_old_idx)
+            matched_new_indices.add(new_idx)
     
     # Column list for empty dataframe handling
     columns = ['new_defect_id', 'old_defect_id', 'distance_diff', 
@@ -123,7 +143,7 @@ def compare_defects(old_defects_df, new_defects_df, old_year=None, new_year=None
     
     # Build results
     matches_df = pd.DataFrame(matches, columns=columns) if matches else pd.DataFrame(columns=columns)
-    new_defects = new_df.loc[~new_df['defect_id'].isin(matched_new)].copy()
+    new_defects = new_df.loc[~new_df.index.isin(matched_new_indices)].copy()
     
     total = len(new_df)
     common = len(matches_df)
@@ -134,7 +154,7 @@ def compare_defects(old_defects_df, new_defects_df, old_year=None, new_year=None
     pct_new = new_cnt/total*100 if total else 0
     
     # Distribution of "truly new" types
-    if new_cnt:
+    if new_cnt and 'component / anomaly identification' in new_defects.columns:
         dist = (new_defects['component / anomaly identification']
                 .value_counts()
                 .rename_axis('defect_type')
