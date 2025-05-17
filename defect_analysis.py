@@ -140,12 +140,12 @@ def create_combined_dimensions_plot(defects_df):
         height=500,
         xaxis=dict(
             title="Defect Length (mm)",
-            titlefont=dict(size=14),
+            tickfont=dict(size=14),
             type='log' if use_log_x else None
         ),
         yaxis=dict(
             title="Defect Width (mm)", 
-            titlefont=dict(size=14),
+            tickfont=dict(size=14),
             type='log' if use_log_y else None
         )
     )
