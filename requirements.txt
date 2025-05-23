@@ -3,3 +3,4 @@ pandas
 plotly
 numpy
 fuzzywuzzy
+scikit-learn
